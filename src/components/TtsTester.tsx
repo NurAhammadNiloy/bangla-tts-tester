@@ -8,11 +8,13 @@ import {
   countTags,
   GEMINI_MAX_BYTES,
   insertTag,
+  presetVoice,
   STYLE_PRESETS,
   tagFamilyFor,
   tagsFor,
   utf8Bytes,
 } from "@/lib/voiceDirector";
+import { type Gender, groupVoices, voiceLabel } from "@/lib/voices";
 import { downloadText, formatBytes, formatUsd, toCsv, type TestRecord } from "@/lib/report";
 
 type Status =
@@ -77,6 +79,7 @@ export default function TtsTester() {
   const [format, setFormat] = useState<RequestedFormat>("auto");
   const [instructions, setInstructions] = useState(STYLE_PRESETS[0].instructions);
   const [presetId, setPresetId] = useState(STYLE_PRESETS[0].id);
+  const [gender, setGender] = useState<Gender>("female");
   const [showNote, setShowNote] = useState(false);
   const [tagging, setTagging] = useState(false);
   const [preTagText, setPreTagText] = useState<string | null>(null);
@@ -126,8 +129,7 @@ export default function TtsTester() {
   function presetVoiceFor(m: SpeechModel | undefined): string | undefined {
     const p = STYLE_PRESETS.find((x) => x.id === presetId);
     if (!m || !p) return undefined;
-    const fam = tagFamilyFor(m.id);
-    const v = fam === "gemini" ? p.geminiVoice : fam === "elevenlabs" ? p.elevenVoice : undefined;
+    const v = presetVoice(p, tagFamilyFor(m.id), gender);
     return v && m.voices.includes(v) ? v : undefined;
   }
 
@@ -148,13 +150,29 @@ export default function TtsTester() {
   const bytes = utf8Bytes(text.trim());
   const overLimit = tagFamily === "gemini" ? bytes > GEMINI_MAX_BYTES : chars > MAX_INPUT_CHARS;
 
+  function pickVoice(p: (typeof STYLE_PRESETS)[number], g: Gender) {
+    const wanted = presetVoice(p, tagFamily, g);
+    if (wanted && model?.voices.includes(wanted)) {
+      setVoiceChoice(wanted);
+      return;
+    }
+    // Model without a preset voice: take the first labelled voice of that gender.
+    const first = model ? groupVoices(model.id, model.voices)[g][0] : undefined;
+    if (first) setVoiceChoice(first);
+  }
+
   function applyPreset(id: string) {
     const p = STYLE_PRESETS.find((x) => x.id === id);
     if (!p) return;
     setPresetId(id);
     setInstructions(p.instructions);
-    const wanted = tagFamily === "gemini" ? p.geminiVoice : tagFamily === "elevenlabs" ? p.elevenVoice : null;
-    if (wanted && model?.voices.includes(wanted)) setVoiceChoice(wanted);
+    pickVoice(p, gender);
+  }
+
+  function applyGender(g: Gender) {
+    setGender(g);
+    const p = STYLE_PRESETS.find((x) => x.id === presetId);
+    if (p) pickVoice(p, g);
   }
 
   function addTag(tag: string) {
@@ -421,12 +439,44 @@ export default function TtsTester() {
             </label>
             <label className="block">
               <span className="label">Voice</span>
-              <select value={voiceChoice} onChange={(e) => setVoiceChoice(e.target.value)} className="input">
-                {model?.voices.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
+              <div className="mb-2 flex gap-1.5" role="radiogroup" aria-label="Narrator gender">
+                {(["female", "male"] as const).map((g) => (
+                  <button
+                    key={g}
+                    type="button"
+                    role="radio"
+                    aria-checked={gender === g}
+                    onClick={() => applyGender(g)}
+                    className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
+                      gender === g
+                        ? "border-teal-700 bg-teal-700 text-white"
+                        : "border-stone-300 hover:border-teal-600 dark:border-stone-700"
+                    }`}
+                  >
+                    {g === "female" ? "♀ Female" : "♂ Male"}
+                  </button>
                 ))}
+              </div>
+              <select value={voiceChoice} onChange={(e) => setVoiceChoice(e.target.value)} className="input">
+                {model &&
+                  (() => {
+                    const groups = groupVoices(model.id, model.voices);
+                    const order: { key: keyof typeof groups; label: string }[] =
+                      gender === "male"
+                        ? [{ key: "male", label: "Male voices" }, { key: "female", label: "Female voices" }, { key: "other", label: "Other voices" }]
+                        : [{ key: "female", label: "Female voices" }, { key: "male", label: "Male voices" }, { key: "other", label: "Other voices" }];
+                    return order
+                      .filter((o) => groups[o.key].length > 0)
+                      .map((o) => (
+                        <optgroup key={o.key} label={o.label}>
+                          {groups[o.key].map((v) => (
+                            <option key={v} value={v}>
+                              {voiceLabel(model.id, v)}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ));
+                  })()}
                 <option value={CUSTOM_VOICE}>Custom voice ID…</option>
               </select>
               {voiceChoice === CUSTOM_VOICE && (

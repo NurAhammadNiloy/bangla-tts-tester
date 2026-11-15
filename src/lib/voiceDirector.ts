@@ -32,6 +32,11 @@ export const ELEVEN_TAGS = {
   delivery: ["whispers", "sighs", "laughs", "gasps", "exhales", "pause"],
 } as const;
 
+export function presetVoice(preset: StylePreset, family: TagFamily, gender: "female" | "male"): string | null {
+  if (family === "none") return null;
+  return preset.voices[family][gender];
+}
+
 export function tagsFor(family: TagFamily): { emotion: readonly string[]; delivery: readonly string[] } {
   if (family === "gemini") return GEMINI_TAGS;
   if (family === "elevenlabs") return ELEVEN_TAGS;
@@ -47,10 +52,11 @@ export interface StylePreset {
   id: string;
   label: string;
   emoji: string;
-  /** Suggested Gemini voice (from Google's 30 prebuilt voices). */
-  geminiVoice: string;
-  /** Suggested ElevenLabs premade voice. */
-  elevenVoice: string;
+  /** Suggested voices per gender (Gemini prebuilt / ElevenLabs premade). */
+  voices: {
+    gemini: { female: string; male: string };
+    elevenlabs: { female: string; male: string };
+  };
   /** Director's note sent as `instructions` (Gemini / OpenAI / Fish Audio). */
   instructions: string;
   /** Tells the auto-tagger which emotional palette fits this genre. */
@@ -66,11 +72,10 @@ export const STYLE_PRESETS: StylePreset[] = [
     id: "emotional",
     label: "Emotional family",
     emoji: "🥲",
-    geminiVoice: "Kore",
-    elevenVoice: "alice",
+    voices: { gemini: { female: "Sulafat", male: "Achird" }, elevenlabs: { female: "lily", male: "george" } },
     instructions:
       BASE +
-      "PROFILE: a warm Bangladeshi storyteller in her thirties telling a true family story to close friends. " +
+      "PROFILE: a warm Bangladeshi storyteller telling a true family story to close friends. " +
       "SCENE: late evening, a small room lit by one lamp, everyone listening closely. " +
       "PERFORMANCE: warm and sincere, with a lump in the throat at the sad moments. Patient and unhurried, " +
       "letting the most painful lines breathe before moving on.",
@@ -80,8 +85,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     id: "horror",
     label: "Horror",
     emoji: "👻",
-    geminiVoice: "Charon",
-    elevenVoice: "brian",
+    voices: { gemini: { female: "Gacrux", male: "Algenib" }, elevenlabs: { female: "matilda", male: "brian" } },
     instructions:
       BASE +
       "PROFILE: a deep-voiced Bangladeshi horror narrator telling a ghost story in a village at night. " +
@@ -94,8 +98,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     id: "comedy",
     label: "Comedy",
     emoji: "😄",
-    geminiVoice: "Puck",
-    elevenVoice: "charlie",
+    voices: { gemini: { female: "Laomedeia", male: "Puck" }, elevenlabs: { female: "jessica", male: "charlie" } },
     instructions:
       BASE +
       "PROFILE: a playful, quick-witted Bangladeshi friend telling a funny story at an adda over tea. " +
@@ -107,8 +110,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     id: "drama",
     label: "Family drama",
     emoji: "🎭",
-    geminiVoice: "Fenrir",
-    elevenVoice: "daniel",
+    voices: { gemini: { female: "Pulcherrima", male: "Fenrir" }, elevenlabs: { female: "laura", male: "daniel" } },
     instructions:
       BASE +
       "PROFILE: an expressive Bangladeshi drama narrator, like a TV natok voice-over. " +
@@ -120,8 +122,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     id: "narrator",
     label: "Calm narrator",
     emoji: "📖",
-    geminiVoice: "Aoede",
-    elevenVoice: "george",
+    voices: { gemini: { female: "Aoede", male: "Iapetus" }, elevenlabs: { female: "alice", male: "george" } },
     instructions:
       BASE +
       "PROFILE: a clear, friendly Bangladeshi audiobook narrator. " +
