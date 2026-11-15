@@ -1,0 +1,1131 @@
+{
+ "series": "বেড নম্বর ১২",
+ "episode": 1,
+ "title": "মৃত রোগীর মেসেজ | বেড নম্বর ১২ পর্ব ১",
+ "caption": "রাত তিনটায় এমন একজন মেসেজ পাঠালেন, যিনি গত সপ্তাহে মারা গেছেন। শেষ পর্যন্ত দেখুন।",
+ "mood": "horror",
+ "format": "9:16",
+ "cast": [
+  {
+   "id": "mitu",
+   "name": "মিতু",
+   "asset": "nurse_young_f",
+   "look": "Bangladeshi woman, 27, slim, medium-brown skin, black hair in a low bun, white nurse uniform with a navy cardigan, white cap",
+   "voice": "female",
+   "new": true
+  },
+  {
+   "id": "rahim",
+   "name": "রহিম চাচা",
+   "asset": "old_man_lungi",
+   "look": "elderly Bangladeshi man, 70, thin, dark-brown skin, white short beard, sky-blue hospital gown",
+   "voice": "male_old",
+   "new": false
+  },
+  {
+   "id": "sabina",
+   "name": "সাবিনা",
+   "asset": "young_woman_salwar",
+   "look": "Bangladeshi woman, 22, round face, light-brown skin, nurse uniform, green dupatta",
+   "voice": "female",
+   "new": false
+  }
+ ],
+ "places": [
+  {
+   "id": "ward_night",
+   "asset": "hospital_ward_night",
+   "look": "government hospital medicine ward at night: row of iron beds with white sheets, green curtain screens, one tube light flickering, barred windows",
+   "time": "night",
+   "weather": "clear",
+   "label": "রাত ২টা • মেডিসিন ওয়ার্ড",
+   "new": true
+  },
+  {
+   "id": "nurse_station",
+   "asset": "office_desk",
+   "look": "small nurse station desk with register, kettle and a wall clock",
+   "time": "night",
+   "weather": "clear",
+   "label": "",
+   "new": false
+  },
+  {
+   "id": "corridor_night",
+   "asset": "corridor",
+   "look": "long empty hospital corridor, pale green walls, one dim light at the end",
+   "time": "night",
+   "weather": "fog",
+   "label": "",
+   "new": true
+  }
+ ],
+ "props": [
+  {
+   "id": "phone",
+   "asset": "phone",
+   "look": "",
+   "new": false
+  },
+  {
+   "id": "clipboard",
+   "asset": "clipboard",
+   "look": "brown clipboard with white paper",
+   "new": true
+  },
+  {
+   "id": "medicine_tray",
+   "asset": "medicine_tray",
+   "look": "steel tray with small pill cups and a glass of water",
+   "new": true
+  },
+  {
+   "id": "torch",
+   "asset": "torch",
+   "look": "small black flashlight",
+   "new": true
+  },
+  {
+   "id": "curtain_screen",
+   "asset": "curtain_screen",
+   "look": "green hospital curtain on a metal frame",
+   "new": true
+  }
+ ],
+ "shots": [
+  {
+   "line": "রাত তিনটা বাজে। আর আমার ফোনে মেসেজ এলো এমন একজনের নম্বর থেকে, যাকে গত সপ্তাহে কবর দেওয়া হয়েছে।",
+   "speaker": "narrator",
+   "place": "ward_night",
+   "layout": "single",
+   "actors": [],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "notification",
+    "app": "মেসেঞ্জার",
+    "title": "রহিম চাচা (বেড ১২)",
+    "body": "মা, আমার ওষুধটা দিয়ে যাও।",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "pov_hand",
+    "move": "push_in",
+    "focus": ""
+   },
+   "transition": "cut",
+   "sfx": [
+    "notification"
+   ],
+   "bubble": false,
+   "pause": 1,
+   "hook": true,
+   "props": []
+  },
+  {
+   "line": "[gasp] এটা কীভাবে সম্ভব?",
+   "speaker": "mitu",
+   "place": "ward_night",
+   "layout": "single",
+   "actors": [
+    {
+     "id": "mitu",
+     "x": 0.5,
+     "action": "shock",
+     "face": "shocked",
+     "facing": "right",
+     "toX": 0.5,
+     "prop": "phone"
+    }
+   ],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "extreme_close",
+    "move": "shake",
+    "focus": "mitu"
+   },
+   "transition": "cut",
+   "sfx": [
+    "gasp_swell"
+   ],
+   "bubble": true,
+   "pause": 0,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "এক ঘণ্টা আগে।",
+   "speaker": "narrator",
+   "place": "ward_night",
+   "layout": "single",
+   "actors": [],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "close",
+    "move": "pull_out",
+    "focus": ""
+   },
+   "transition": "dip_black",
+   "sfx": [],
+   "bubble": false,
+   "pause": 0.6,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "আমি মিতু। ঢাকা মেডিকেলের চার তলার মেডিসিন ওয়ার্ডে নাইট ডিউটি করি।",
+   "speaker": "narrator",
+   "place": "ward_night",
+   "layout": "single",
+   "actors": [
+    {
+     "id": "mitu",
+     "x": 0.35,
+     "action": "walk_in",
+     "face": "neutral",
+     "facing": "right",
+     "toX": 0.35,
+     "prop": "clipboard"
+    }
+   ],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "wide",
+    "move": "pan_right",
+    "focus": "mitu"
+   },
+   "transition": "cut",
+   "sfx": [
+    "footsteps"
+   ],
+   "bubble": false,
+   "pause": 0,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "রাতের ওয়ার্ড মানে শুধু ঘড়ির টিকটিক আর রোগীদের ভারী নিঃশ্বাস।",
+   "speaker": "narrator",
+   "place": "ward_night",
+   "layout": "single",
+   "actors": [
+    {
+     "id": "mitu",
+     "x": 0.5,
+     "action": "idle",
+     "face": "neutral",
+     "facing": "right",
+     "toX": 0.5,
+     "prop": "clipboard"
+    }
+   ],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "medium",
+    "move": "push_in",
+    "focus": "mitu"
+   },
+   "transition": "cut",
+   "sfx": [
+    "clock_tick"
+   ],
+   "bubble": false,
+   "pause": 0,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "মিতু আপা, চা খাবেন? আজ রাত খুব লম্বা লাগছে।",
+   "speaker": "sabina",
+   "place": "nurse_station",
+   "layout": "single",
+   "actors": [
+    {
+     "id": "sabina",
+     "x": 0.3,
+     "action": "talk",
+     "face": "happy",
+     "facing": "right",
+     "toX": 0.3,
+     "prop": ""
+    },
+    {
+     "id": "mitu",
+     "x": 0.7,
+     "action": "idle",
+     "face": "neutral",
+     "facing": "left",
+     "toX": 0.7,
+     "prop": ""
+    }
+   ],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "two_shot",
+    "move": "hold",
+    "focus": ""
+   },
+   "transition": "cut",
+   "sfx": [],
+   "bubble": true,
+   "pause": 0,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "না রে সাবিনা, বারো নম্বর বেডটা খালি দেখলেই মনটা কেমন করে।",
+   "speaker": "mitu",
+   "place": "nurse_station",
+   "layout": "single",
+   "actors": [
+    {
+     "id": "sabina",
+     "x": 0.3,
+     "action": "idle",
+     "face": "sad",
+     "facing": "right",
+     "toX": 0.3,
+     "prop": ""
+    },
+    {
+     "id": "mitu",
+     "x": 0.7,
+     "action": "talk",
+     "face": "sad",
+     "facing": "left",
+     "toX": 0.7,
+     "prop": ""
+    }
+   ],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "close",
+    "move": "hold",
+    "focus": "mitu"
+   },
+   "transition": "cut",
+   "sfx": [],
+   "bubble": true,
+   "pause": 0,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "[sad] বারো নম্বর বেডে ছিলেন রহিম চাচা। প্রতি রাতে আমাকে মা বলে ডাকতেন।",
+   "speaker": "narrator",
+   "place": "ward_night",
+   "layout": "single",
+   "actors": [],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "photo",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [
+     "rahim",
+     "mitu"
+    ],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": "রহিম চাচা, মাত্র দুই সপ্তাহ আগে"
+   },
+   "camera": {
+    "shot": "medium",
+    "move": "push_in",
+    "focus": ""
+   },
+   "transition": "flash",
+   "sfx": [],
+   "bubble": false,
+   "pause": 0,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "ওষুধ দিতে একটু দেরি হলেই হাসতেন, বলতেন আমার মা আজ ভুলে গেছে।",
+   "speaker": "narrator",
+   "place": "ward_night",
+   "layout": "single",
+   "actors": [
+    {
+     "id": "rahim",
+     "x": 0.4,
+     "action": "laugh",
+     "face": "happy",
+     "facing": "right",
+     "toX": 0.4,
+     "prop": ""
+    },
+    {
+     "id": "mitu",
+     "x": 0.65,
+     "action": "talk",
+     "face": "happy",
+     "facing": "left",
+     "toX": 0.65,
+     "prop": "medicine_tray"
+    }
+   ],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "two_shot",
+    "move": "hold",
+    "focus": ""
+   },
+   "transition": "flash",
+   "sfx": [],
+   "bubble": false,
+   "pause": 0,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "গত বৃহস্পতিবার রাতে তিনি আর চোখ খোলেননি।",
+   "speaker": "narrator",
+   "place": "ward_night",
+   "layout": "single",
+   "actors": [],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "calendar",
+    "app": "",
+    "title": "নভেম্বর",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 30,
+    "marked": 6,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "close",
+    "move": "hold",
+    "focus": ""
+   },
+   "transition": "cut",
+   "sfx": [
+    "sad_sting"
+   ],
+   "bubble": false,
+   "pause": 0.8,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "ওনার ফোনটা ওনার ছেলে নিয়ে গিয়েছিল। নম্বরটা বন্ধ থাকার কথা।",
+   "speaker": "narrator",
+   "place": "nurse_station",
+   "layout": "single",
+   "actors": [
+    {
+     "id": "mitu",
+     "x": 0.5,
+     "action": "idle",
+     "face": "worried",
+     "facing": "right",
+     "toX": 0.5,
+     "prop": ""
+    }
+   ],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "medium",
+    "move": "hold",
+    "focus": "mitu"
+   },
+   "transition": "cut",
+   "sfx": [],
+   "bubble": false,
+   "pause": 0,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "ঠিক তখনই ফোনটা আবার কেঁপে উঠল।",
+   "speaker": "narrator",
+   "place": "nurse_station",
+   "layout": "single",
+   "actors": [
+    {
+     "id": "mitu",
+     "x": 0.5,
+     "action": "phone_ear",
+     "face": "scared",
+     "facing": "right",
+     "toX": 0.5,
+     "prop": "phone"
+    }
+   ],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "close",
+    "move": "push_in",
+    "focus": "mitu"
+   },
+   "transition": "cut",
+   "sfx": [
+    "message"
+   ],
+   "bubble": false,
+   "pause": 0.5,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "",
+   "speaker": "narrator",
+   "place": "ward_night",
+   "layout": "single",
+   "actors": [],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "chat",
+    "app": "",
+    "title": "রহিম চাচা (বেড ১২)",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [
+     {
+      "from": "them",
+      "text": "মা, আমার ওষুধটা দিয়ে যাও।"
+     },
+     {
+      "from": "them",
+      "text": "আমি বারো নম্বরেই আছি।"
+     }
+    ],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "pov_hand",
+    "move": "hold",
+    "focus": ""
+   },
+   "transition": "cut",
+   "sfx": [
+    "heartbeat"
+   ],
+   "bubble": false,
+   "pause": 0,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "[whispers] সাবিনা, বারো নম্বর বেডে কেউ ভর্তি হয়েছে আজ?",
+   "speaker": "mitu",
+   "place": "nurse_station",
+   "layout": "single",
+   "actors": [
+    {
+     "id": "mitu",
+     "x": 0.6,
+     "action": "talk",
+     "face": "scared",
+     "facing": "left",
+     "toX": 0.6,
+     "prop": ""
+    },
+    {
+     "id": "sabina",
+     "x": 0.3,
+     "action": "shake_head",
+     "face": "worried",
+     "facing": "right",
+     "toX": 0.3,
+     "prop": ""
+    }
+   ],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "over_shoulder",
+    "move": "hold",
+    "focus": "sabina"
+   },
+   "transition": "cut",
+   "sfx": [],
+   "bubble": true,
+   "pause": 0,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "না আপা, ওটা তো সিল করা। কাল নতুন রোগী আসবে।",
+   "speaker": "sabina",
+   "place": "nurse_station",
+   "layout": "single",
+   "actors": [
+    {
+     "id": "sabina",
+     "x": 0.3,
+     "action": "shake_head",
+     "face": "worried",
+     "facing": "right",
+     "toX": 0.3,
+     "prop": ""
+    },
+    {
+     "id": "mitu",
+     "x": 0.6,
+     "action": "idle",
+     "face": "scared",
+     "facing": "left",
+     "toX": 0.6,
+     "prop": ""
+    }
+   ],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "close",
+    "move": "hold",
+    "focus": "sabina"
+   },
+   "transition": "cut",
+   "sfx": [],
+   "bubble": true,
+   "pause": 0,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "আমি টর্চটা নিয়ে আস্তে আস্তে করিডোর ধরে হাঁটতে লাগলাম।",
+   "speaker": "narrator",
+   "place": "corridor_night",
+   "layout": "single",
+   "actors": [
+    {
+     "id": "mitu",
+     "x": 0.2,
+     "action": "walk_to",
+     "face": "scared",
+     "facing": "right",
+     "toX": 0.2,
+     "prop": "torch"
+    }
+   ],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "wide",
+    "move": "pan_right",
+    "focus": "mitu"
+   },
+   "transition": "cut",
+   "sfx": [
+    "footsteps"
+   ],
+   "bubble": false,
+   "pause": 0,
+   "hook": false,
+   "props": []
+  },
+  {
+   "line": "বারো নম্বর বেডের পর্দাটা নড়ছিল, অথচ জানালা বন্ধ।",
+   "speaker": "narrator",
+   "place": "ward_night",
+   "layout": "single",
+   "actors": [],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "medium",
+    "move": "push_in",
+    "focus": ""
+   },
+   "transition": "cut",
+   "sfx": [
+    "door_creak"
+   ],
+   "bubble": false,
+   "pause": 1.2,
+   "hook": false,
+   "props": [
+    {
+     "id": "curtain_screen",
+     "x": 0.55
+    }
+   ]
+  },
+  {
+   "line": "আর পর্দার ওপাশ থেকে চেনা একটা কাশির শব্দ ভেসে এলো।",
+   "speaker": "narrator",
+   "place": "ward_night",
+   "layout": "single",
+   "actors": [
+    {
+     "id": "mitu",
+     "x": 0.3,
+     "action": "shock",
+     "face": "shocked",
+     "facing": "right",
+     "toX": 0.3,
+     "prop": "torch"
+    }
+   ],
+   "top": {
+    "place": "",
+    "actors": []
+   },
+   "bottom": {
+    "place": "",
+    "actors": []
+   },
+   "screen": {
+    "type": "none",
+    "app": "",
+    "title": "",
+    "body": "",
+    "caller": "",
+    "subtitle": "",
+    "who": "",
+    "people": [],
+    "messages": [],
+    "text": "",
+    "signature": "",
+    "headline": "",
+    "ticker": "",
+    "days": 0,
+    "marked": 0,
+    "from": "",
+    "to": "",
+    "caption": ""
+   },
+   "camera": {
+    "shot": "extreme_close",
+    "move": "shake",
+    "focus": "mitu"
+   },
+   "transition": "dip_black",
+   "sfx": [
+    "scare_sting"
+   ],
+   "bubble": false,
+   "pause": 1.5,
+   "hook": false,
+   "props": []
+  }
+ ],
+ "end": {
+  "type": "next_part",
+  "text": "পরের পর্ব দেখুন"
+ }
+}

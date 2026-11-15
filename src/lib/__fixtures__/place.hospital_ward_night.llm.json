@@ -1,0 +1,235 @@
+{
+ "kind": "place",
+ "id": "hospital_ward_night",
+ "label": "হাসপাতালের ওয়ার্ড, রাত",
+ "tags": [
+  "indoor",
+  "hospital",
+  "ward",
+  "night",
+  "modern"
+ ],
+ "size": [
+  1620,
+  1920
+ ],
+ "floorY": 1500,
+ "layers": {
+  "back": [
+   {
+    "d": "M0 0 H1620 V1500 H0 Z",
+    "fill": "#8f9aa8",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M0 1500 H1620 V1920 H0 Z",
+    "fill": "#7d7f86",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M0 1460 H1620 V1500 H0 Z",
+    "fill": "#5a5a66",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M180 380 H560 V820 H180 Z",
+    "fill": "#24304a",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M271 380 H279 V820 H271 Z",
+    "fill": "#5a5a66",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M366 380 H374 V820 H366 Z",
+    "fill": "#5a5a66",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M461 380 H469 V820 H461 Z",
+    "fill": "#5a5a66",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M620 380 H1000 V820 H620 Z",
+    "fill": "#24304a",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M711 380 H719 V820 H711 Z",
+    "fill": "#5a5a66",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M806 380 H814 V820 H806 Z",
+    "fill": "#5a5a66",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M901 380 H909 V820 H901 Z",
+    "fill": "#5a5a66",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M1060 380 H1440 V820 H1060 Z",
+    "fill": "#24304a",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M1151 380 H1159 V820 H1151 Z",
+    "fill": "#5a5a66",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M1246 380 H1254 V820 H1246 Z",
+    "fill": "#5a5a66",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M1341 380 H1349 V820 H1341 Z",
+    "fill": "#5a5a66",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M1300 490 C1316.6 490 1330 503.4 1330 520 C1330 536.6 1316.6 550 1300 550 C1283.4 550 1270 536.6 1270 520 C1270 503.4 1283.4 490 1300 490 Z",
+    "fill": "#efe7d6",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 0.8
+   }
+  ],
+  "mid": [
+   {
+    "d": "M620 120 H1000 V146 H620 Z",
+    "fill": "#efe7d6",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M600 146 H1020 V420 H600 Z",
+    "fill": "#efe7d6",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 0.15
+   },
+   {
+    "d": "M40 1240 H360 V1300 H40 Z",
+    "fill": "#efe7d6",
+    "stroke": "#2b2730",
+    "strokeWidth": 3,
+    "opacity": 1
+   },
+   {
+    "d": "M40 1300 H360 V1330 H40 Z",
+    "fill": "#d9d4cc",
+    "stroke": "#2b2730",
+    "strokeWidth": 3,
+    "opacity": 1
+   },
+   {
+    "d": "M50 1330 H64 V1500 H50 Z",
+    "fill": "#5a5a66",
+    "stroke": "#2b2730",
+    "strokeWidth": 3,
+    "opacity": 1
+   },
+   {
+    "d": "M336 1330 H350 V1500 H336 Z",
+    "fill": "#5a5a66",
+    "stroke": "#2b2730",
+    "strokeWidth": 3,
+    "opacity": 1
+   },
+   {
+    "d": "M40 1150 H60 V1300 H40 Z",
+    "fill": "#5a5a66",
+    "stroke": "#2b2730",
+    "strokeWidth": 3,
+    "opacity": 1
+   },
+   {
+    "d": "M1260 1240 H1580 V1300 H1260 Z",
+    "fill": "#efe7d6",
+    "stroke": "#2b2730",
+    "strokeWidth": 3,
+    "opacity": 1
+   },
+   {
+    "d": "M1260 1300 H1580 V1330 H1260 Z",
+    "fill": "#d9d4cc",
+    "stroke": "#2b2730",
+    "strokeWidth": 3,
+    "opacity": 1
+   },
+   {
+    "d": "M1270 1330 H1284 V1500 H1270 Z",
+    "fill": "#5a5a66",
+    "stroke": "#2b2730",
+    "strokeWidth": 3,
+    "opacity": 1
+   },
+   {
+    "d": "M1556 1330 H1570 V1500 H1556 Z",
+    "fill": "#5a5a66",
+    "stroke": "#2b2730",
+    "strokeWidth": 3,
+    "opacity": 1
+   },
+   {
+    "d": "M1260 1150 H1280 V1300 H1260 Z",
+    "fill": "#5a5a66",
+    "stroke": "#2b2730",
+    "strokeWidth": 3,
+    "opacity": 1
+   }
+  ],
+  "front": [
+   {
+    "d": "M0 1640 H140 V1920 H0 Z",
+    "fill": "#2f3e4f",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   },
+   {
+    "d": "M1500 1700 Q1560 1600 1620 1700 V1920 H1500 Z",
+    "fill": "#2f3e4f",
+    "stroke": "",
+    "strokeWidth": 0,
+    "opacity": 1
+   }
+  ]
+ }
+}
