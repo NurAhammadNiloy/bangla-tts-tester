@@ -87,16 +87,20 @@ export function drawWeather(ctx: CanvasRenderingContext2D, weather: Weather | un
       break;
     }
     case "fog": {
-      ctx.fillStyle = "rgba(215,222,232,0.16)";
+      ctx.fillStyle = "rgba(205,212,225,0.14)";
       ctx.fillRect(r.x, r.y, r.w, r.h);
-      for (let i = 0; i < 9; i++) {
-        const w = r.w * (0.5 + hash(seed, i, 1) * 0.6);
-        const x = r.x + ((hash(seed, i, 2) * (r.w + w) + t * (14 + 20 * hash(seed, i, 3)) * k) % (r.w + w)) - w / 2;
-        const y = r.y + r.h * (0.35 + hash(seed, i, 4) * 0.6);
-        ctx.fillStyle = `rgba(220,226,236,${0.1 + hash(seed, i, 5) * 0.12})`;
-        ctx.beginPath();
-        ctx.ellipse(x, y, w / 2, r.h * 0.07, 0, 0, Math.PI * 2);
-        ctx.fill();
+      // soft drifting bands: each band is a stack of faint, wide ellipses
+      for (let i = 0; i < 6; i++) {
+        const w = r.w * (1.1 + hash(seed, i, 1) * 0.8);
+        const x = r.x + ((hash(seed, i, 2) * (r.w + w) + t * (10 + 16 * hash(seed, i, 3)) * k) % (r.w + w)) - w / 2;
+        const y = r.y + r.h * (0.3 + hash(seed, i, 4) * 0.62);
+        const hgt = r.h * (0.05 + hash(seed, i, 5) * 0.05);
+        for (let j = 0; j < 4; j++) {
+          ctx.fillStyle = "rgba(215,222,234,0.045)";
+          ctx.beginPath();
+          ctx.ellipse(x, y, (w / 2) * (1 - j * 0.18), hgt * (1 - j * 0.2), 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
       break;
     }

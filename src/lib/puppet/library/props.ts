@@ -26,7 +26,7 @@ const prop = (id: string, label: string, tags: string[], size: [number, number],
 });
 
 export const STARTER_PROPS: PropAsset[] = [
-  prop("smartphone", "স্মার্টফোন (smartphone)", ["phone", "smartphone", "mobile", "call", "screen", "hand"], [44, 80], [22, 52], [
+  prop("smartphone", "স্মার্টফোন (smartphone)", ["phone", "smartphone", "mobile", "call", "screen", "hand"], [44, 80], [30, 52], [
     s("#2f3440", P.rrect(2, 2, 40, 76, 8)),
     n("#9fc6e0", P.rrect(7, 9, 30, 58, 3)),
     n("#ffffff", P.rect(10, 12, 10, 4), 0.6),

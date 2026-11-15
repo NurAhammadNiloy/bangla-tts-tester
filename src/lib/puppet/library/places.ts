@@ -20,7 +20,7 @@ const [WALL0, WALL1, WALL2, WALL3, WALL4] = PALETTE.wall;
 const [GR_WOOD, GR_GRASS, GR_ASPHALT, GR_SAND] = PALETTE.ground;
 const C = PALETTE.cloth;
 
-function window(x: number, y: number, w: number, h: number, frame = C[9], bars = true): Shape[] {
+function window(x: number, y: number, w: number, h: number, frame: string = C[9], bars = true): Shape[] {
   const out = [f(frame, P.rect(x - 16, y - 16, w + 32, h + 32)), f(SKY, P.rect(x, y, w, h))];
   if (bars) {
     out.push(f(frame, P.rect(x + w / 2 - 6, y, 12, h)));

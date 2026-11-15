@@ -46,7 +46,7 @@ const RUN: RecipeKey[] = [
   { at: 0.75, parts: { leg_l: A(-0.05), leg_r: A(0.05), arm_l: A(0, 0.75), arm_r: A(0, 0.75) }, root: { dy: -22, rot: 0.14 } },
   { at: 1, parts: { leg_l: A(0.8), leg_r: A(-0.8), arm_l: A(-0.9, 0.75), arm_r: A(0.9, 0.75) }, root: { dy: 0, rot: 0.14 } },
 ];
-const SIT_PARTS = { leg_l: A(-1.2), leg_r: A(-1.15), arm_l: A(-0.55), arm_r: A(-0.6) };
+const SIT_PARTS = { leg_l: A(-1.0), leg_r: A(-0.95), arm_l: A(-0.55), arm_r: A(-0.6) };
 const LIE_PARTS = { arm_l: A(0.08), arm_r: A(-0.05), head: { rot: -0.1 } };
 
 export const RECIPES: Record<Action, Recipe> = {
