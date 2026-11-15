@@ -639,6 +639,17 @@ export default function CreateWizard() {
             ))}
           </ol>
 
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-sm font-semibold">
+            Narrator voice
+            <Info title="Narrator voice">The storyteller&apos;s voice for this video. Characters who speak keep their own voices.</Info>
+            <button className={chip(narrator === "female")} onClick={() => setNarrator("female")} aria-pressed={narrator === "female"}>
+              ♀ Female
+            </button>
+            <button className={chip(narrator === "male")} onClick={() => setNarrator("male")} aria-pressed={narrator === "male"}>
+              ♂ Male
+            </button>
+          </div>
+
           {estimate && (
             <p className="mt-4 rounded-xl bg-surface-2 p-3 text-sm">
               পর্ব {bn(partIndex + 1)} · about {Math.round(estimate.seconds)} s · {estimate.shots} shots · about {money(cost)} · takes about{" "}
