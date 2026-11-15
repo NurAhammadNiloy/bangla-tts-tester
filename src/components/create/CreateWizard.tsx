@@ -284,7 +284,7 @@ export default function CreateWizard() {
       setLibrary(nextLib);
       setPlan(p);
       await save({ library: nextLib as ProjectRecord["library"], episodePlan: p, status: "planned" });
-      if (failed.length) setError(`Could not draw ${failed.join(", ")}; using the closest ready-made one instead.`);
+      if (failed.length) setError(`${failed.length} small item${failed.length > 1 ? "s" : ""} could not be drawn, so ready-made ones are used instead. You can make the video as it is.`);
       setStep("check");
     } catch (e) {
       if ((e as Error).name !== "AbortError") setError((e as Error).message);
