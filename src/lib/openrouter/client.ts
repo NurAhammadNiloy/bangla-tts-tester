@@ -216,6 +216,7 @@ export async function getGeneration(
 
 interface RawTextModel {
   id: string;
+  supported_parameters?: string[];
   architecture?: { input_modalities?: string[]; output_modalities?: string[] };
   pricing?: Record<string, unknown>;
 }
@@ -254,22 +255,35 @@ export async function listTextModels(opts: ClientOptions = {}): Promise<RawTextM
 }
 
 export async function chatComplete(
-  p: { apiKey: string; model: string; system: string; user: string; temperature?: number; maxTokens?: number },
+  p: {
+    apiKey: string;
+    model: string;
+    system: string;
+    user: string;
+    temperature?: number;
+    maxTokens?: number;
+    /** OpenRouter structured outputs: { type: "json_schema", json_schema: { name, strict, schema } }. */
+    responseFormat?: Record<string, unknown>;
+    plugins?: { id: string }[];
+  },
   opts: ClientOptions = {},
 ): Promise<{ content: string; generationId: string | null }> {
   const f = opts.fetchImpl ?? fetch;
+  const body: Record<string, unknown> = {
+    model: p.model,
+    temperature: p.temperature ?? 0.2,
+    max_tokens: p.maxTokens ?? 4000,
+    messages: [
+      { role: "system", content: p.system },
+      { role: "user", content: p.user },
+    ],
+  };
+  if (p.responseFormat) body.response_format = p.responseFormat;
+  if (p.plugins?.length) body.plugins = p.plugins;
   const res = await f(`${baseUrl()}/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${p.apiKey}`, "Content-Type": "application/json", ...APP_HEADERS },
-    body: JSON.stringify({
-      model: p.model,
-      temperature: p.temperature ?? 0.2,
-      max_tokens: p.maxTokens ?? 4000,
-      messages: [
-        { role: "system", content: p.system },
-        { role: "user", content: p.user },
-      ],
-    }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(opts.timeoutMs ?? 90_000),
   });
   if (!res.ok) throw await errorFromResponse(res, p.apiKey);

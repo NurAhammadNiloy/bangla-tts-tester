@@ -28,6 +28,10 @@ export interface RenderScene {
   audio: AudioBuffer;
   visual: Visual;
   narration: string;
+  /** Character name when the narration is spoken dialogue: shown as a speech bubble. */
+  speaker?: string;
+  /** Short Bangla tag at the top for time/place jumps. */
+  titleTag?: string;
 }
 
 export interface RenderOptions {
@@ -37,6 +41,7 @@ export interface RenderOptions {
   subtitles?: boolean;
   /** Colour the word being spoken yellow (reel style). Default true. */
   highlightWords?: boolean;
+  captionStyle?: CaptionStyle;
   onProgress?: (p: number) => void;
   signal?: AbortSignal;
 }
@@ -103,39 +108,132 @@ function drawCover(
 }
 
 const HIGHLIGHT = "#FFD43B";
+export type CaptionStyle = "box" | "clean" | "headline";
 
-function drawCaption(ctx: CanvasRenderingContext2D, cap: Caption, t: number, W: number, H: number, highlight: boolean) {
-  const measure = (s: string, size: number) => {
+function measurer(ctx: CanvasRenderingContext2D) {
+  return (t: string, size: number) => {
     ctx.font = `700 ${size}px ${FONT}`;
-    const m = ctx.measureText(s).width;
-    // Guard against engines that under-report complex-script widths.
-    const estimate = [...s].length * size * 0.5;
-    return m < estimate * 0.4 ? estimate : m;
+    const m = ctx.measureText(t).width;
+    // Only fall back when the engine reports nothing at all. Bangla conjuncts (e.g. বৃষ্টি)
+    // pack many code points into a narrow glyph, so a per-letter estimate over-reserves space.
+    return m > 0 ? m : [...t].length * size * 0.5;
   };
-  const L = layoutCaption(cap.text, W, H, measure);
-  const active = highlight
+}
+
+function activeIndex(L: ReturnType<typeof layoutCaption>, cap: Caption, t: number, highlight: boolean) {
+  return highlight
     ? activeWordIndex(
         L.words.map((w) => w.text),
         (t - cap.start) / Math.max(0.01, cap.end - cap.start),
       )
     : -1;
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") ctx.roundRect(x, y, w, h, r);
+  else ctx.rect(x, y, w, h);
+}
+
+function drawWords(
+  ctx: CanvasRenderingContext2D,
+  L: ReturnType<typeof layoutCaption>,
+  active: number,
+  o: { fill: string; hi: string; stroke?: string; strokeRatio?: number; shadow?: boolean },
+) {
   ctx.font = `700 ${L.fontSize}px ${FONT}`;
   ctx.direction = "ltr";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = "rgba(20,14,10,0.72)";
-  ctx.beginPath();
-  if (typeof ctx.roundRect === "function") ctx.roundRect(L.box.x, L.box.y, L.box.w, L.box.h, L.fontSize * 0.45);
-  else ctx.rect(L.box.x, L.box.y, L.box.w, L.box.h);
-  ctx.fill();
   ctx.lineJoin = "round";
   for (const w of L.words) {
-    ctx.lineWidth = L.fontSize * 0.12;
-    ctx.strokeStyle = "rgba(0,0,0,0.8)";
-    ctx.strokeText(w.text, w.x, w.y);
-    ctx.fillStyle = w.index === active ? HIGHLIGHT : "#fff";
+    if (o.shadow) {
+      ctx.shadowColor = "rgba(0,0,0,0.65)";
+      ctx.shadowBlur = L.fontSize * 0.35;
+    }
+    if (o.stroke) {
+      ctx.lineWidth = L.fontSize * (o.strokeRatio ?? 0.12);
+      ctx.strokeStyle = o.stroke;
+      ctx.strokeText(w.text, w.x, w.y);
+    }
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = w.index === active ? o.hi : o.fill;
     ctx.fillText(w.text, w.x, w.y);
   }
+  ctx.shadowBlur = 0;
+}
+
+function drawCaption(ctx: CanvasRenderingContext2D, cap: Caption, t: number, W: number, H: number, highlight: boolean, style: CaptionStyle) {
+  const m = measurer(ctx);
+  if (style === "headline") {
+    const L = layoutCaption(cap.text, W, H, m, { centerY: 0.2, sizeRatio: 0.088, maxWidthRatio: 0.86, maxLines: 3 });
+    drawWords(ctx, L, activeIndex(L, cap, t, highlight), { fill: "#fff", hi: HIGHLIGHT, stroke: "rgba(0,0,0,0.75)", strokeRatio: 0.1, shadow: true });
+    return;
+  }
+  if (style === "clean") {
+    const L = layoutCaption(cap.text, W, H, m, { centerY: 0.78, sizeRatio: 0.07 });
+    drawWords(ctx, L, activeIndex(L, cap, t, highlight), { fill: "#fff", hi: HIGHLIGHT, stroke: "rgba(0,0,0,0.85)", strokeRatio: 0.16, shadow: true });
+    return;
+  }
+  const L = layoutCaption(cap.text, W, H, m);
+  ctx.fillStyle = "rgba(20,14,10,0.72)";
+  roundRect(ctx, L.box.x, L.box.y, L.box.w, L.box.h, L.fontSize * 0.45);
+  ctx.fill();
+  drawWords(ctx, L, activeIndex(L, cap, t, highlight), { fill: "#fff", hi: HIGHLIGHT, stroke: "rgba(0,0,0,0.8)" });
+}
+
+/** White speech bubble near the top, for lines a character says aloud. */
+function drawBubble(ctx: CanvasRenderingContext2D, cap: Caption, t: number, W: number, H: number, highlight: boolean) {
+  const L = layoutCaption(cap.text, W, H, measurer(ctx), { centerY: 0.25, sizeRatio: 0.058, maxWidthRatio: 0.76, maxLines: 3 });
+  const r = L.fontSize * 0.7;
+  ctx.fillStyle = "#fbfaf7";
+  ctx.strokeStyle = "#2a2a35";
+  ctx.lineWidth = Math.max(3, W * 0.005);
+  roundRect(ctx, L.box.x, L.box.y, L.box.w, L.box.h, r);
+  ctx.fill();
+  ctx.stroke();
+  // tail
+  const tx = W / 2;
+  const ty = L.box.y + L.box.h;
+  const tw = L.fontSize * 0.55;
+  ctx.beginPath();
+  ctx.moveTo(tx - tw, ty - 1);
+  ctx.lineTo(tx, ty + tw * 1.1);
+  ctx.lineTo(tx + tw, ty - 1);
+  ctx.closePath();
+  ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(tx - tw, ty);
+  ctx.lineTo(tx, ty + tw * 1.1);
+  ctx.lineTo(tx + tw, ty);
+  ctx.stroke();
+  drawWords(ctx, L, activeIndex(L, cap, t, highlight), { fill: "#1d1d26", hi: "#c47f00" });
+}
+
+/** Small pill at the top for time/place jumps, e.g. "৩ মাস পর • বৃষ্টির দুপুর". */
+function drawTitleTag(ctx: CanvasRenderingContext2D, text: string, W: number, H: number, alpha: number) {
+  const size = Math.round(W * 0.042);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = `700 ${size}px ${FONT}`;
+  const m = measurer(ctx)(text, size);
+  const padX = size * 0.9;
+  const w = Math.min(W * 0.9, m + padX * 2);
+  const h = size * 1.9;
+  const x = (W - w) / 2;
+  const y = H * 0.07;
+  ctx.fillStyle = "rgba(236,237,246,0.95)";
+  ctx.strokeStyle = "#2a2a35";
+  ctx.lineWidth = Math.max(2, W * 0.004);
+  roundRect(ctx, x, y, w, h, h / 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#1d1d26";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.direction = "ltr";
+  ctx.fillText(text, (W - Math.min(m, w - padX * 2)) / 2, y + h / 2, w - padX * 2);
+  ctx.restore();
 }
 
 export async function renderVideo(
@@ -258,7 +356,16 @@ export async function renderVideo(
           const cap = captions[slot.index].find(
             (c) => t >= c.start && t < c.end,
           );
-          if (cap) drawCaption(ctx, cap, t, W, H, opts.highlightWords !== false);
+          const hl = opts.highlightWords !== false;
+          if (cap) {
+            if (scene.speaker) drawBubble(ctx, cap, t, W, H, hl);
+            else drawCaption(ctx, cap, t, W, H, hl, opts.captionStyle ?? "box");
+          }
+          if (scene.titleTag) {
+            const into = t - slot.start;
+            const left = slot.end - t;
+            drawTitleTag(ctx, scene.titleTag, W, H, Math.min(1, into / 0.4, left / 0.4));
+          }
         }
         opts.onProgress?.(Math.min(1, Math.max(0, t / total)));
         requestAnimationFrame(tick);

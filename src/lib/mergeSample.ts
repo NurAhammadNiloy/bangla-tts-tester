@@ -2,6 +2,10 @@ export interface SceneDraft {
   narration: string;
   prompt: string;
   kind: "image" | "video";
+  /** Character name when the line is spoken dialogue (speech bubble). */
+  speaker?: string;
+  /** Short Bangla tag at the top for time/place jumps. */
+  titleTag?: string;
 }
 
 /** Where the story happens (kept for every picture). */

@@ -70,9 +70,9 @@ describe("POST /api/tts", () => {
     expect(await res.text()).not.toContain(FAKE_KEY);
   });
 
-  it("rate limits at 20 requests per minute per client", async () => {
+  it("rate limits at 60 requests per minute per client", async () => {
     mockFetch(() => audioResponse([1], "audio/mpeg"));
-    for (let i = 0; i < 20; i++) expect((await ttsPost(ttsRequest(good))).status).toBe(200);
+    for (let i = 0; i < 60; i++) expect((await ttsPost(ttsRequest(good))).status).toBe(200);
     expect((await ttsPost(ttsRequest(good))).status).toBe(429);
     expect((await ttsPost(ttsRequest(good, FAKE_KEY, "2.2.2.2"))).status).toBe(200);
   });

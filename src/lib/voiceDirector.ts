@@ -130,6 +130,30 @@ export const STYLE_PRESETS: StylePreset[] = [
       "PERFORMANCE: warm, clear and steady, with natural pauses at sentence ends.",
     tagHint: "short pause, long pause, curiosity, hope",
   },
+  {
+    id: "explainer",
+    label: "Explainer",
+    emoji: "🧠",
+    voices: { gemini: { female: "Erinome", male: "Sadaltager" }, elevenlabs: { female: "sarah", male: "eric" } },
+    instructions:
+      BASE +
+      "PROFILE: a smart, friendly Bangladeshi science presenter explaining something surprising to young viewers. " +
+      "SCENE: a bright studio, talking straight to the camera. " +
+      "PERFORMANCE: clear, curious and engaging, with a small pause before each key fact and gentle emphasis on new words.",
+    tagHint: "curiosity, excitement, short pause, awe, determination",
+  },
+  {
+    id: "scifi",
+    label: "Sci-fi",
+    emoji: "🚀",
+    voices: { gemini: { female: "Zephyr", male: "Alnilam" }, elevenlabs: { female: "matilda", male: "callum" } },
+    instructions:
+      BASE +
+      "PROFILE: a cinematic Bangladeshi narrator telling a science-fiction story. " +
+      "SCENE: a dark theatre, the story unfolding on a giant screen. " +
+      "PERFORMANCE: rich and dramatic, filled with wonder at discoveries and tension at danger, building toward each reveal.",
+    tagHint: "awe, tension, curiosity, excitement, long pause, whispers, panic",
+  },
 ];
 
 /** Insert `[tag] ` at the cursor, adding a space before it if needed. */

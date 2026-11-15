@@ -5,7 +5,7 @@ export const maxDuration = 120;
 
 /** POST /api/image { model, prompt, references?: dataUrl[] } → { dataUrl, costUsd } */
 export async function POST(req: Request) {
-  const g = guard(req, "img", 20);
+  const g = guard(req, "img", 60);
   if ("response" in g) return g.response;
   let b: Record<string, unknown>;
   try {

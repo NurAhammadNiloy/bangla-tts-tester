@@ -44,6 +44,17 @@ export const ART_STYLES: ArtStyle[] = [
     goodFor: "Emotional, romance",
     about: "Hand-drawn look with painted backgrounds, expressive faces and warm, film-like light. Best for touching and emotional stories.",
   },
+  {
+    id: "explainer",
+    label: "Explainer",
+    emoji: "🧠",
+    prompt:
+      "Minimal dark explainer infographic illustration: deep charcoal background, simple flat shapes and thin outlines, " +
+      "a warm amber-gold accent color for the key element, clean diagrams, icons and simple stick-like figures, lots of empty space, " +
+      "calm and modern, like a science explainer video.",
+    goodFor: "Science, psychology, facts",
+    about: "Dark, calm diagrams and icons with one gold highlight, like science and psychology explainer reels. Best when the video explains an idea rather than tells a story.",
+  },
 ];
 
 /**

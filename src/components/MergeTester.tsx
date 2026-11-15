@@ -11,6 +11,7 @@ import { estimateVideoCost, pickClipDuration } from "@/lib/openrouter/media";
 import { renderVideo, type RenderScene, type SyncReport } from "@/lib/render/renderer";
 import { buildTimeline, totalDuration } from "@/lib/render/timeline";
 import { formatUsd } from "@/lib/report";
+import { suggestCaption, CAPTION_STYLES, estimateSeconds, GENRES, partSeconds, partText, type CaptionStyle, type PlanScene, type StoryPlan } from "@/lib/storyPlan";
 import { pickDefaultSpeechModel, presetVoice, STYLE_PRESETS, tagFamilyFor } from "@/lib/voiceDirector";
 import { groupVoices, type Gender } from "@/lib/voices";
 
@@ -89,6 +90,16 @@ export default function MergeTester() {
   const [characters, setCharacters] = useState(DEFAULT_CHARACTERS);
   const [imagesStyle, setImagesStyle] = useState<string | null>(null);
   const [scenes, setScenes] = useState<SceneState[]>(DEFAULT_SCENES.map((s) => ({ ...s })));
+  const [mode, setMode] = useState<"story" | "manual">("story");
+  const [storyText, setStoryText] = useState("");
+  const [partMinutes, setPartMinutes] = useState("auto");
+  const [plan, setPlan] = useState<StoryPlan | null>(null);
+  const [activePart, setActivePart] = useState<number | null>(null);
+  const [madeParts, setMadeParts] = useState<number[]>([]);
+  const [captionStyle, setCaptionStyle] = useState<CaptionStyle>("box");
+  const [captionPicked, setCaptionPicked] = useState(false);
+  const [planning, setPlanning] = useState<null | "outline" | number>(null);
+  const [confirmNew, setConfirmNew] = useState(false);
 
   const [busy, setBusy] = useState<Busy>(null);
   const [message, setMessage] = useState<{ kind: "info" | "error" | "ok"; text: string } | null>(null);
@@ -157,8 +168,184 @@ export default function MergeTester() {
     return { i, dur, cost };
   });
 
+  /* ---------- saved story (browser only, so Part 2 can be made later) ---------- */
+  const STORE = "golpo.story.v1";
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORE) ?? "null");
+        if (!saved) return;
+        if (typeof saved.storyText === "string") setStoryText(saved.storyText);
+        if (saved.plan?.parts?.length) setPlan(saved.plan);
+        if (Array.isArray(saved.madeParts)) setMadeParts(saved.madeParts);
+        if (saved.look) {
+          if (saved.look.artId) setArtId(saved.look.artId);
+          if (saved.look.captionStyle) setCaptionStyle(saved.look.captionStyle);
+          if (saved.look.captionPicked) setCaptionPicked(true);
+          if (saved.look.presetId) setPresetId(saved.look.presetId);
+          if (saved.look.characters) setCharacters(saved.look.characters);
+          if (saved.look.setting) setSetting(saved.look.setting);
+        }
+      } catch {
+        /* storage unavailable or corrupt: start fresh */
+      } finally {
+        setRestored(true);
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  useEffect(() => {
+    if (!restored) return; // never overwrite the saved story before it has been read back
+    try {
+      localStorage.setItem(
+        STORE,
+        JSON.stringify({ storyText, plan, madeParts, look: { artId, captionStyle, captionPicked, presetId, characters, setting } }),
+      );
+    } catch {
+      /* quota or private mode: the plan just won't survive a reload */
+    }
+  }, [restored, storyText, plan, madeParts, artId, captionStyle, captionPicked, presetId, characters, setting]);
+
+  function loadScenes(list: PlanScene[]) {
+    setScenes(list.map((x) => ({ narration: x.narration, prompt: x.picture, kind: "image", speaker: x.speaker, titleTag: x.titleTag })));
+    setOutput(null);
+    setImagesStyle(null);
+  }
+
+  async function planStory() {
+    if (needKey()) return;
+    setPlanning("outline");
+    setMessage({ kind: "info", text: "The Story Editor is reading your story and choosing where each part ends… (about 30–90 seconds)" });
+    try {
+      const r = await postJson<{ plan: StoryPlan; model: string }>("/api/plan", apiKey.trim(), {
+        mode: "outline",
+        story: storyText,
+        partMinutes: partMinutes === "auto" ? undefined : Number(partMinutes),
+      });
+      const g = GENRES[r.plan.genre];
+      setPlan(r.plan);
+      setMadeParts([]);
+      setActivePart(null);
+      setArtId(g.art);
+      setCaptionStyle(suggestCaption(r.plan.genre, g.art));
+      setCaptionPicked(false);
+      setPresetId(g.mood);
+      if (r.plan.characters) setCharacters(r.plan.characters);
+      if (r.plan.setting) setSetting(r.plan.setting);
+      setMessage({
+        kind: "ok",
+        text: `Planned as ${g.emoji} ${g.label} in ${r.plan.parts.length} part${r.plan.parts.length > 1 ? "s" : ""}. Open Part 1 to see its scenes.`,
+      });
+    } catch (e) {
+      setMessage({ kind: "error", text: e instanceof Error ? e.message : "Planning failed." });
+    } finally {
+      setPlanning(null);
+    }
+  }
+
+  async function openPart(i: number) {
+    if (!plan) return;
+    const part = plan.parts[i];
+    if (part.scenes?.length) {
+      setActivePart(i);
+      loadScenes(part.scenes);
+      setMessage({ kind: "ok", text: `Part ${i + 1} is open below. Next: make the voice.` });
+      return;
+    }
+    if (needKey()) return;
+    setPlanning(i);
+    setMessage({ kind: "info", text: `Splitting Part ${i + 1} into scenes…` });
+    try {
+      const r = await postJson<{ scenes: PlanScene[] }>("/api/plan", apiKey.trim(), {
+        mode: "scenes",
+        text: partText(plan, part),
+        genre: plan.genre,
+        characters,
+        setting,
+        partTitle: part.title,
+        hook: part.hook,
+        isLast: i === plan.parts.length - 1,
+      });
+      const next = { ...plan, parts: plan.parts.map((p, j) => (j === i ? { ...p, scenes: r.scenes } : p)) };
+      setPlan(next);
+      setActivePart(i);
+      loadScenes(r.scenes);
+      setMessage({ kind: "ok", text: `Part ${i + 1}: ${r.scenes.length} scenes ready below. Check them, then make the voice.` });
+    } catch (e) {
+      setMessage({ kind: "error", text: e instanceof Error ? e.message : "Could not plan this part." });
+    } finally {
+      setPlanning(null);
+    }
+  }
+
+  function startNewStory() {
+    setPlan(null);
+    setActivePart(null);
+    setMadeParts([]);
+    setStoryText("");
+    setScenes(DEFAULT_SCENES.map((x) => ({ ...x })));
+    setOutput(null);
+    setConfirmNew(false);
+  }
+
+  function exportPlan() {
+    if (!plan) return;
+    const blob = new Blob([JSON.stringify({ plan, madeParts, look: { artId, captionStyle, presetId, characters, setting } }, null, 2)], {
+      type: "application/json",
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${plan.title.replace(/[^\p{L}\p{N}]+/gu, "-").slice(0, 40) || "story"}-plan.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  async function importPlan(file: File) {
+    try {
+      const j = JSON.parse(await file.text());
+      if (!j.plan?.parts?.length || !Array.isArray(j.plan.sentences)) throw new Error("bad");
+      setPlan(j.plan);
+      setMadeParts(Array.isArray(j.madeParts) ? j.madeParts : []);
+      if (j.look?.artId) setArtId(j.look.artId);
+      if (j.look?.captionStyle) setCaptionStyle(j.look.captionStyle);
+      if (j.look?.presetId) setPresetId(j.look.presetId);
+      if (j.look?.characters) setCharacters(j.look.characters);
+      if (j.look?.setting) setSetting(j.look.setting);
+      setActivePart(null);
+      setMessage({ kind: "ok", text: "Story plan loaded." });
+    } catch {
+      setMessage({ kind: "error", text: "That file is not a Golpo Studio story plan." });
+    }
+  }
+
+  /** Keep edits to the open part's scenes saved in the plan. */
+  function syncPart(next: SceneState[]) {
+    if (activePart === null || !plan) return;
+    const sc: PlanScene[] = next.map((x) => ({ narration: x.narration, picture: x.prompt, speaker: x.speaker ?? "", titleTag: x.titleTag ?? "" }));
+    setPlan({ ...plan, parts: plan.parts.map((p, j) => (j === activePart ? { ...p, scenes: sc } : p)) });
+  }
+
+  function addScene() {
+    const next = [...scenes, { narration: "", prompt: "", kind: "image" as const }];
+    setScenes(next);
+    syncPart(next);
+  }
+
+  function removeScene(i: number) {
+    if (scenes.length <= 1) return;
+    const next = scenes.filter((_, j) => j !== i);
+    setScenes(next);
+    syncPart(next);
+  }
+
   const update = (i: number, patch: Partial<SceneState>) =>
-    setScenes((prev) => prev.map((s, j) => (j === i ? { ...s, ...patch } : s)));
+    setScenes((prev) => {
+      const next = prev.map((s, j) => (j === i ? { ...s, ...patch } : s));
+      if ("narration" in patch || "prompt" in patch || "speaker" in patch || "titleTag" in patch) syncPart(next);
+      return next;
+    });
 
   function needKey(): boolean {
     if (apiKey.trim()) return false;
@@ -212,18 +399,28 @@ export default function MergeTester() {
     if (needKey() || !iModel) return;
     setBusy("images");
     try {
-      let reference: string | undefined;
-      for (let i = 0; i < scenes.length; i++) {
-        setMessage({ kind: "info", text: `Drawing image ${i + 1} of ${scenes.length}…` });
+      // Scene 1 first: it becomes the character reference for the rest.
+      let done = 0;
+      const draw = async (i: number, reference?: string) => {
         const r = await postJson<{ dataUrl: string; costUsd: number | null }>("/api/image", apiKey.trim(), {
           model: iModel.id,
           prompt: promptFor(scenes[i].prompt),
           references: reference && iModel.acceptsReferences ? [reference] : undefined,
         });
         update(i, { imageUrl: r.dataUrl, imageCost: r.costUsd });
-        // Scene 1 becomes the character reference for later scenes.
-        if (i === 0) reference = r.dataUrl;
-      }
+        done++;
+        setMessage({ kind: "info", text: `Drawing pictures… ${done} of ${scenes.length}` });
+        return r.dataUrl;
+      };
+      setMessage({ kind: "info", text: `Drawing pictures… 0 of ${scenes.length}` });
+      const reference = await draw(0);
+      // Then 3 at a time.
+      const queue = scenes.map((_, i) => i).slice(1);
+      await Promise.all(
+        Array.from({ length: Math.min(3, queue.length) }, async () => {
+          for (let i = queue.shift(); i !== undefined; i = queue.shift()) await draw(i, reference);
+        }),
+      );
       setImagesStyle(artId);
       const hasVideo = scenes.some((s) => s.kind === "video");
       setMessage({
@@ -312,15 +509,18 @@ export default function MergeTester() {
         scenes.map(async (s) => ({
           audio: s.audio!.buffer,
           narration: s.narration,
+          speaker: s.speaker || undefined,
+          titleTag: s.titleTag || undefined,
           visual:
             s.kind === "video" && s.video?.url
               ? { kind: "video" as const, video: await loadVideo(s.video.url), clipSeconds: s.video.seconds ?? 0 }
               : { kind: "image" as const, image: await loadImage(s.imageUrl!) },
         })),
       );
-      const r = await renderVideo(ac, prepared, slots, { onProgress: setProgress, signal: ctrl.signal });
+      const r = await renderVideo(ac, prepared, slots, { onProgress: setProgress, signal: ctrl.signal, captionStyle });
       const ext = r.mimeType.includes("mp4") ? "mp4" : "webm";
       setOutput({ url: URL.createObjectURL(r.blob), blob: r.blob, ext, mime: r.mimeType, seconds: r.durationSeconds, report: r.report });
+      if (activePart !== null) setMadeParts((m) => (m.includes(activePart) ? m : [...m, activePart]));
       setMessage({ kind: "ok", text: `Done: ${r.durationSeconds.toFixed(1)} s ${ext.toUpperCase()} video.` });
     } catch (e) {
       if ((e as Error).name === "AbortError") setMessage({ kind: "info", text: "Render cancelled." });
@@ -343,7 +543,7 @@ export default function MergeTester() {
   const imgCost = scenes.reduce((a, s) => a + (s.imageCost ?? 0), 0);
   const vidCost = scenes.reduce((a, s) => a + (s.video?.cost ?? 0), 0);
   const picturesDone = scenes.every((s) => s.imageUrl);
-  const storyReady = scenes.every((s) => s.narration.trim() && s.prompt.trim());
+  const storyReady = (mode === "manual" || activePart !== null) && scenes.length > 0 && scenes.every((s) => s.narration.trim() && s.prompt.trim());
   const progressSteps = [
     { id: "story", icon: "✍️", label: "Story", done: storyReady },
     { id: "voice", icon: "🔊", label: "Voice", done: audioReady },
@@ -420,151 +620,403 @@ export default function MergeTester() {
       </section>
 
       {/* STEP 1 */}
-      <Step id="story" n={1} title="Write your story" what="Choose how the pictures look, then write each scene." meta="Free" done={storyReady}>
-        <div className="label">
-          Art style
-          <Info title="Art style">
-            How every picture in your video will be drawn. The same characters and scenes are redrawn in the style you pick. You
-            can change it later and just redraw the pictures; the voice stays the same.
-          </Info>
+      <Step
+        id="story"
+        n={1}
+        title="Your story"
+        what="Paste a whole story and let the Story Editor split it into parts and scenes, or write scenes yourself."
+        meta="Planning costs about $0.01–0.05"
+        done={storyReady && (mode === "manual" || activePart !== null)}
+      >
+        <div className="mb-4 flex rounded-full border border-line bg-bg p-1 text-sm font-semibold" role="tablist">
+          {(
+            [
+              ["story", "📜 Paste a whole story"],
+              ["manual", "✍️ Write scenes myself"],
+            ] as const
+          ).map(([m, label]) => (
+            <button
+              key={m}
+              role="tab"
+              aria-selected={mode === m}
+              onClick={() => setMode(m)}
+              className={`flex-1 rounded-full px-3 py-2 transition ${mode === m ? "bg-accent text-accent-ink" : "text-muted"}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        <div className="grid grid-cols-3 gap-2.5">
-          {ART_STYLES.map((a) => {
-            const src = previewSrc(a.id);
-            const on = artId === a.id;
-            return (
-              <div key={a.id} className="relative">
-                <button
-                  type="button"
-                  onClick={() => setArtId(a.id)}
-                  aria-pressed={on}
-                  className={`block w-full overflow-hidden rounded-2xl border-2 text-left transition ${
-                    on ? "border-accent shadow-[0_8px_28px_-10px_var(--accent)]" : "border-line hover:border-accent/60"
-                  }`}
-                >
-                  <div className="relative aspect-[9/14] bg-surface-2">
-                    {src ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- small static preview
-                      <img src={src} alt={`Example picture in ${a.label} style`} loading="lazy" className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="flex h-full items-center justify-center text-3xl">{a.emoji}</span>
-                    )}
-                    {on && (
-                      <span className="absolute bottom-2 left-2 rounded-full bg-accent px-2 py-0.5 text-xs font-bold text-accent-ink">✓ Selected</span>
-                    )}
-                  </div>
-                  <div className={`px-2.5 py-2 ${on ? "bg-accent/15" : "bg-surface"}`}>
-                    <span className="block text-sm font-bold leading-tight">{a.label}</span>
-                    <span className="block truncate text-[11px] text-muted">{a.goodFor}</span>
-                  </div>
-                </button>
-                <span className="absolute right-1.5 top-1.5 rounded-full bg-surface/90 p-0.5">
-                  <Info title={a.label}>{a.about}</Info>
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        {styleChanged && <p className="mt-2 text-xs font-semibold text-accent-strong">Style changed: redraw the pictures in step 3 to see it.</p>}
 
-        <details className="mt-4 rounded-2xl border border-line bg-surface-2/60 p-3.5">
-          <summary className="flex cursor-pointer list-none items-center text-sm font-semibold">
-            👥 Characters &amp; place
-            <Info title="Characters & place">
-              A short description of each person (age, hair, clothes) and where the story happens. It is added to every picture so
-              the same mother looks like the same mother in every scene. Write it in English.
-            </Info>
-            <span className="ml-auto text-xs text-muted">Edit ▾</span>
-          </summary>
-          <textarea value={characters} onChange={(e) => setCharacters(e.target.value)} rows={4} className="input mt-3 text-sm" aria-label="Characters" />
-          <input value={setting} onChange={(e) => setSetting(e.target.value)} className="input mt-2 text-sm" aria-label="Place" />
-        </details>
-
-        <div className="label mt-5">
-          Scenes
-          <Info title="Scenes">
-            Each scene is one line of narration plus one picture. 4 scenes make about 20–30 seconds of video. Edit the sample to tell
-            your own story.
-          </Info>
-        </div>
-        <div className="space-y-3">
-          {scenes.map((s, i) => (
-            <div key={i} className="rounded-2xl border border-line bg-bg/40 p-3.5" style={{ borderLeft: `4px solid ${SCENE_COLORS[i % SCENE_COLORS.length]}` }}>
-              <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm font-bold">Scene {i + 1}</span>
-                <div className="flex items-center">
-                  <div className="flex rounded-full border border-line bg-surface p-0.5 text-xs font-semibold" role="radiogroup" aria-label={`Scene ${i + 1} type`}>
-                    {(["image", "video"] as const).map((k) => (
-                      <button
-                        key={k}
-                        type="button"
-                        role="radio"
-                        aria-checked={s.kind === k}
-                        onClick={() => update(i, { kind: k })}
-                        className={`rounded-full px-3 py-1.5 transition ${s.kind === k ? "bg-accent text-accent-ink" : "text-muted"}`}
-                      >
-                        {k === "image" ? "🖼 Picture" : "🎬 AI video"}
-                      </button>
-                    ))}
-                  </div>
-                  <Info title="Picture or AI video?">
-                    <b>🖼 Picture</b>: one still picture with a slow zoom and pan. Costs a few cents and always matches the voice exactly.
-                    <br />
-                    <b>🎬 AI video</b>: the picture is turned into a short moving clip (people move, rain falls). Looks livelier but costs
-                    about $0.10–0.20 per scene and takes 1–5 minutes.
+        {mode === "story" && !plan && (
+          <div>
+            <label className="label" htmlFor="story-text">
+              Your story (Bangla)
+              <Info title="Paste a whole story">
+                Paste the full story exactly as written, of any length. The Story Editor AI reads all of it, works out the type of
+                story, and cuts it into parts (each 6 minutes at most) that end at a moment of curiosity, so viewers want the next
+                part. Your own words are kept.
+              </Info>
+            </label>
+            <textarea
+              id="story-text"
+              value={storyText}
+              onChange={(e) => setStoryText(e.target.value)}
+              rows={9}
+              lang="bn"
+              placeholder="এখানে পুরো গল্পটা পেস্ট করুন…"
+              className="input bangla text-base leading-relaxed"
+            />
+            <p className="hint mt-1">
+              {[...storyText].length.toLocaleString()} letters · about {Math.max(0, estimateSeconds(storyText) / 60).toFixed(1)} min when read aloud
+            </p>
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <label className="block min-w-[10rem] flex-1">
+                <span className="label">
+                  Length of each part
+                  <Info title="Length of each part">
+                    “Let the editor decide” is best: it picks the number of parts from the story itself, usually 2–3 minutes each.
+                    Choose a length only if you want every part about that long. A part is never longer than 6 minutes.
                   </Info>
+                </span>
+                <select value={partMinutes} onChange={(e) => setPartMinutes(e.target.value)} className="input">
+                  <option value="auto">Let the editor decide</option>
+                  <option value="2">About 2 minutes</option>
+                  <option value="3">About 3 minutes</option>
+                  <option value="5">About 5 minutes</option>
+                </select>
+              </label>
+              <button onClick={planStory} disabled={!!planning || [...storyText.trim()].length < 40} className="btn-primary">
+                {planning === "outline" ? "Reading your story…" : "✨ Plan my story"}
+              </button>
+            </div>
+            <label className="mt-3 inline-flex cursor-pointer items-center text-xs font-semibold text-muted">
+              <input type="file" accept="application/json" className="sr-only" onChange={(e) => e.target.files?.[0] && importPlan(e.target.files[0])} />
+              📂 Open a saved story plan
+            </label>
+          </div>
+        )}
+
+        {mode === "story" && plan && (
+          <div>
+            <div className="rounded-2xl border border-line bg-surface-2/60 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="bangla text-xl font-bold leading-snug">{plan.title}</h3>
+                  <p className="mt-0.5 flex items-center text-xs text-muted">
+                    {GENRES[plan.genre].emoji} {GENRES[plan.genre].label} · {plan.parts.length} part{plan.parts.length > 1 ? "s" : ""} · about{" "}
+                    {(plan.parts.reduce((a, p) => a + partSeconds(plan, p), 0) / 60).toFixed(1)} min in total
+                    <Info title="What the Story Editor decided">
+                      The story type sets the suggested look below: art style, subtitle style and voice mood. Each part ends on a
+                      hook (🪝) so viewers want the next one. The plan is saved in this browser, so you can make Part 1 now and Part 2
+                      later.
+                    </Info>
+                  </p>
+                </div>
+                <div className="flex gap-1.5">
+                  <button onClick={exportPlan} className="btn-secondary !px-2.5 !py-1.5 !text-xs">
+                    💾 Save file
+                  </button>
+                  <button onClick={() => setConfirmNew(true)} className="btn-secondary !px-2.5 !py-1.5 !text-xs">
+                    New story
+                  </button>
                 </div>
               </div>
-              <label className="label !text-xs !font-semibold text-muted" htmlFor={`n${i}`}>
-                🗣 Narrator says
-                <Info title="Narrator says">
-                  The exact Bangla words the voice will read. You can add English emotion tags like [sad], [whispers] or [long pause]
-                  where the feeling changes; they are not spoken or shown in subtitles.
-                </Info>
-              </label>
-              <textarea
-                id={`n${i}`}
-                value={s.narration}
-                onChange={(e) => update(i, { narration: e.target.value, audio: undefined })}
-                rows={2}
-                lang="bn"
-                className="input bangla text-base"
-              />
-              <label className="label !text-xs !font-semibold text-muted mt-2.5" htmlFor={`p${i}`}>
-                🖼 Picture shows
-                <Info title="Picture shows">
-                  What should be in the picture, in English: who is there, what they do, where, and the time of day. Example: “Rainy
-                  night, the son knocks on the wooden door.”
-                </Info>
-              </label>
-              <textarea
-                id={`p${i}`}
-                value={s.prompt}
-                onChange={(e) => update(i, { prompt: e.target.value, imageUrl: undefined, video: undefined })}
-                rows={2}
-                className="input text-sm"
-              />
-              {(s.audio || s.imageUrl || s.video) && (
-                <div className="mt-3 flex flex-wrap items-center gap-3">
-                  {s.imageUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element -- generated data: URL
-                    <img src={s.imageUrl} alt={`Scene ${i + 1} picture`} className="h-28 rounded-xl object-cover" />
-                  )}
-                  {s.video?.url && <video src={s.video.url} className="h-28 rounded-xl" muted loop autoPlay playsInline />}
-                  <div className="space-y-1 text-xs">
-                    {s.audio && (
-                      <>
-                        <span className="font-bold text-ok">🔊 {s.audio.seconds.toFixed(1)} s voice</span>
-                        <audio controls src={s.audio.url} className="h-8 max-w-[220px]" />
-                      </>
-                    )}
-                    {s.video?.status && !s.video.url && <span className="block text-muted">🎬 {s.video.status.replace("_", " ")}…</span>}
+              {confirmNew && (
+                <div className="mt-3 rounded-xl border border-bad/50 bg-bad/10 p-3 text-sm">
+                  Start a new story? This plan will be removed from this browser (save the file first if you need it).
+                  <div className="mt-2 flex gap-2">
+                    <button onClick={startNewStory} className="btn-primary !py-1.5">
+                      Yes, start new
+                    </button>
+                    <button onClick={() => setConfirmNew(false)} className="btn-secondary !py-1.5">
+                      Keep it
+                    </button>
                   </div>
                 </div>
               )}
             </div>
-          ))}
+
+            <ol className="mt-3 space-y-2">
+              {plan.parts.map((p, i) => {
+                const open = activePart === i;
+                const made = madeParts.includes(i);
+                const secs = partSeconds(plan, p);
+                return (
+                  <li
+                    key={i}
+                    className={`rounded-2xl border p-3.5 transition ${open ? "border-accent bg-accent/10" : "border-line bg-surface"}`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-sm font-extrabold ${made ? "bg-ok text-white" : "bg-surface-2"}`}>
+                        {made ? "✓" : i + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+                          <span className="bangla font-bold">
+                            Part {i + 1}: {p.title}
+                          </span>
+                          <span className="text-xs text-muted">
+                            ~{Math.floor(secs / 60)}:{String(Math.round(secs % 60)).padStart(2, "0")} min
+                            {p.scenes?.length ? ` · ${p.scenes.length} scenes` : ""}
+                          </span>
+                        </div>
+                        {p.summary && <p className="bangla mt-0.5 text-sm text-muted">{p.summary}</p>}
+                        {p.hook && i < plan.parts.length - 1 && <p className="bangla mt-1 text-sm">🪝 {p.hook}</p>}
+                      </div>
+                    </div>
+                    <div className="mt-2.5 flex justify-end">
+                      <button onClick={() => openPart(i)} disabled={planning !== null || !!busy} className={open ? "btn-secondary !py-1.5" : "btn-primary !py-1.5"}>
+                        {planning === i ? "Making scenes…" : open ? "Open below ↓" : made ? "Open again" : p.scenes?.length ? "Open this part" : "Make scenes for this part"}
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        )}
+
+        {/* Look: art + subtitles */}
+        <div className="mt-6 border-t border-line pt-5">
+          <div className="label">
+            Art style
+            <Info title="Art style">
+              How every picture is drawn. The Story Editor suggests one for the story type; you can change it any time and just redraw the
+              pictures.
+            </Info>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {ART_STYLES.map((a) => {
+              const src = previewSrc(a.id);
+              const on = artId === a.id;
+              return (
+                <div key={a.id} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setArtId(a.id);
+                      if (!captionPicked) setCaptionStyle(suggestCaption(plan?.genre, a.id));
+                    }}
+                    aria-pressed={on}
+                    className={`block w-full overflow-hidden rounded-2xl border-2 text-left transition ${
+                      on ? "border-accent shadow-[0_8px_28px_-10px_var(--accent)]" : "border-line hover:border-accent/60"
+                    }`}
+                  >
+                    <div className="relative aspect-[9/14] bg-surface-2">
+                      {src ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- small static preview
+                        <img src={src} alt={`Example picture in ${a.label} style`} loading="lazy" className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="flex h-full items-center justify-center bg-[#1c1c22] text-3xl">{a.emoji}</span>
+                      )}
+                      {on && <span className="absolute bottom-1.5 left-1.5 rounded-full bg-accent px-1.5 text-[11px] font-bold text-accent-ink">✓</span>}
+                    </div>
+                    <div className={`px-2 py-1.5 ${on ? "bg-accent/15" : "bg-surface"}`}>
+                      <span className="block truncate text-xs font-bold leading-tight">{a.label}</span>
+                      <span className="block truncate text-[10px] text-muted">{a.goodFor}</span>
+                    </div>
+                  </button>
+                  <span className="absolute right-1 top-1 rounded-full bg-surface/90 p-0.5">
+                    <Info title={a.label}>{a.about}</Info>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {styleChanged && <p className="mt-2 text-xs font-semibold text-accent-strong">Style changed: redraw the pictures in step 3 to see it.</p>}
+
+          <div className="label mt-5">
+            Subtitle style
+            <Info title="Subtitle style">
+              How the Bangla words appear on the video. It is picked for you from the story type and art style (marked ✨ Suggested):
+              horror and sci-fi get clean text, explainers get big headlines, emotional, drama and comedy get the dark box. Tap another
+              to override it. The word being spoken always lights up in yellow. Lines a character says aloud
+              appear in a speech bubble, and time jumps get a small tag at the top, whichever style you choose.
+            </Info>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {CAPTION_STYLES.map((c) => {
+              const on = captionStyle === c.id;
+              return (
+                <div key={c.id} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCaptionStyle(c.id);
+                      setCaptionPicked(c.id !== suggestCaption(plan?.genre, artId));
+                    }}
+                    aria-pressed={on}
+                    className={`block w-full overflow-hidden rounded-2xl border-2 text-left transition ${on ? "border-accent" : "border-line hover:border-accent/60"}`}
+                  >
+                    <div
+                      className={`bangla relative flex aspect-[4/3] justify-center bg-gradient-to-b from-[#3b4a6b] to-[#1f2740] px-1.5 text-[13px] font-bold text-white ${
+                        c.id === "headline" ? "items-start pt-3 text-base" : "items-end pb-3"
+                      }`}
+                      aria-hidden
+                    >
+                      {c.id === "box" && (
+                        <span className="rounded-md bg-[#2a1d12]/85 px-2 py-0.5">
+                          এক <span className="text-[#FFD43B]">বৃষ্টির</span> দুপুরে
+                        </span>
+                      )}
+                      {c.id === "clean" && (
+                        <span style={{ textShadow: "0 0 3px #000, 0 0 3px #000, 0 2px 6px #000" }}>
+                          এক <span className="text-[#FFD43B]">বৃষ্টির</span> দুপুরে
+                        </span>
+                      )}
+                      {c.id === "headline" && (
+                        <span className="leading-tight" style={{ textShadow: "0 2px 6px #000" }}>
+                          দরজা পার হতেই <span className="text-[#FFD43B]">মাথা ফাঁকা</span>
+                        </span>
+                      )}
+                    </div>
+                    <div className={`px-2 py-1.5 text-xs font-bold ${on ? "bg-accent/15" : "bg-surface"}`}>
+                      {c.label}
+                      {c.id === suggestCaption(plan?.genre, artId) && <span className="block text-[10px] font-semibold text-accent-strong">✨ Suggested</span>}
+                    </div>
+                  </button>
+                  <span className="absolute right-1 top-1 rounded-full bg-surface/90 p-0.5">
+                    <Info title={`${c.label} subtitles`}>{c.about}</Info>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          <details className="mt-4 rounded-2xl border border-line bg-surface-2/60 p-3.5">
+            <summary className="flex cursor-pointer list-none items-center text-sm font-semibold">
+              👥 Characters &amp; place
+              <Info title="Characters & place">
+                A short English description of each person (age, hair, clothes) and where the story happens. It is added to every
+                picture so people look the same in every scene. The Story Editor fills this in from your story.
+              </Info>
+              <span className="ml-auto text-xs text-muted">Edit ▾</span>
+            </summary>
+            <textarea value={characters} onChange={(e) => setCharacters(e.target.value)} rows={4} className="input mt-3 text-sm" aria-label="Characters" />
+            <input value={setting} onChange={(e) => setSetting(e.target.value)} className="input mt-2 text-sm" aria-label="Place" />
+          </details>
         </div>
+
+        {/* Scenes of the open part (or manual scenes) */}
+        {(mode === "manual" || activePart !== null) && (
+          <div className="mt-6 border-t border-line pt-5">
+            <div className="label">
+              {mode === "story" && activePart !== null ? `Scenes of Part ${activePart + 1}` : "Scenes"} · {scenes.length} · about{" "}
+              {(scenes.reduce((a, x) => a + estimateSeconds(x.narration), 0) / 60).toFixed(1)} min
+              <Info title="Scenes">
+                Each scene is one picture plus its narration. Check the wording, fix anything you like, add or remove scenes. Changes are
+                saved with the story.
+              </Info>
+            </div>
+            <div className="space-y-3">
+              {scenes.map((s, i) => (
+                <div key={i} className="rounded-2xl border border-line bg-bg/40 p-3.5" style={{ borderLeft: `4px solid ${SCENE_COLORS[i % SCENE_COLORS.length]}` }}>
+                  <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-bold">Scene {i + 1}</span>
+                    <div className="flex items-center gap-1">
+                      <div className="flex rounded-full border border-line bg-surface p-0.5 text-xs font-semibold" role="radiogroup" aria-label={`Scene ${i + 1} type`}>
+                        {(["image", "video"] as const).map((k) => (
+                          <button
+                            key={k}
+                            type="button"
+                            role="radio"
+                            aria-checked={s.kind === k}
+                            onClick={() => update(i, { kind: k })}
+                            className={`rounded-full px-3 py-1.5 transition ${s.kind === k ? "bg-accent text-accent-ink" : "text-muted"}`}
+                          >
+                            {k === "image" ? "🖼 Picture" : "🎬 AI video"}
+                          </button>
+                        ))}
+                      </div>
+                      <Info title="Picture or AI video?">
+                        <b>🖼 Picture</b>: one still picture with a slow zoom and pan. A few cents, always in sync with the voice.
+                        <br />
+                        <b>🎬 AI video</b>: the picture becomes a short moving clip. Livelier, but about $0.10–0.20 per scene and 1–5 minutes to
+                        make.
+                      </Info>
+                      {scenes.length > 1 && (
+                        <button onClick={() => removeScene(i)} aria-label={`Remove scene ${i + 1}`} className="ml-1 rounded-full px-2 py-1 text-muted hover:text-bad">
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <label className="label !text-xs !font-semibold text-muted" htmlFor={`n${i}`}>
+                    🗣 Narrator says
+                    <Info title="Narrator says">
+                      The exact Bangla words the voice reads. English tags like [sad] or [whispers] guide the feeling; they are not spoken or
+                      shown.
+                    </Info>
+                  </label>
+                  <textarea
+                    id={`n${i}`}
+                    value={s.narration}
+                    onChange={(e) => update(i, { narration: e.target.value, audio: undefined })}
+                    rows={2}
+                    lang="bn"
+                    className="input bangla text-base"
+                  />
+                  <label className="label !text-xs !font-semibold text-muted mt-2.5" htmlFor={`p${i}`}>
+                    🖼 Picture shows
+                    <Info title="Picture shows">
+                      What is in the picture, in English: who, doing what, where, time of day and camera (wide or close-up).
+                    </Info>
+                  </label>
+                  <textarea
+                    id={`p${i}`}
+                    value={s.prompt}
+                    onChange={(e) => update(i, { prompt: e.target.value, imageUrl: undefined, video: undefined })}
+                    rows={2}
+                    className="input text-sm"
+                  />
+                  <div className="mt-2.5 grid grid-cols-2 gap-2">
+                    <label className="block">
+                      <span className="label !mb-1 !text-xs !font-semibold text-muted">
+                        💬 Speaker
+                        <Info title="Speaker">
+                          If this line is a character talking (dialogue), write their name. The words then appear in a speech bubble
+                          instead of the bottom subtitle. Leave empty for the narrator.
+                        </Info>
+                      </span>
+                      <input value={s.speaker ?? ""} onChange={(e) => update(i, { speaker: e.target.value })} placeholder="Narrator" className="input bangla !py-2 text-sm" />
+                    </label>
+                    <label className="block">
+                      <span className="label !mb-1 !text-xs !font-semibold text-muted">
+                        🏷 Top tag
+                        <Info title="Top tag">
+                          A short label at the top of the screen for a time or place jump, like “৩ মাস পর • বৃষ্টির দুপুর”. Leave empty
+                          for none.
+                        </Info>
+                      </span>
+                      <input value={s.titleTag ?? ""} onChange={(e) => update(i, { titleTag: e.target.value })} placeholder="None" className="input bangla !py-2 text-sm" />
+                    </label>
+                  </div>
+                  {(s.audio || s.imageUrl || s.video) && (
+                    <div className="mt-3 flex flex-wrap items-center gap-3">
+                      {s.imageUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element -- generated data: URL
+                        <img src={s.imageUrl} alt={`Scene ${i + 1} picture`} className="h-28 rounded-xl object-cover" />
+                      )}
+                      {s.video?.url && <video src={s.video.url} className="h-28 rounded-xl" muted loop autoPlay playsInline />}
+                      <div className="space-y-1 text-xs">
+                        {s.audio && (
+                          <>
+                            <span className="font-bold text-ok">🔊 {s.audio.seconds.toFixed(1)} s voice</span>
+                            <audio controls src={s.audio.url} className="h-8 max-w-[220px]" />
+                          </>
+                        )}
+                        {s.video?.status && !s.video.url && <span className="block text-muted">🎬 {s.video.status.replace("_", " ")}…</span>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button onClick={addScene} className="btn-secondary mt-3 w-full">
+              ＋ Add a scene
+            </button>
+          </div>
+        )}
       </Step>
 
       {/* STEP 2 */}
@@ -573,9 +1025,9 @@ export default function MergeTester() {
         n={2}
         title="Make the voice"
         what="Reads every scene aloud in Bangla. The length of each line decides how long its picture stays on screen."
-        meta="About 20 seconds · about $0.01"
+        meta={`About ${Math.max(1, Math.round(scenes.length * 3 / 60))} min for ${scenes.length} scenes · about $0.01–0.05`}
         done={audioReady}
-        locked={!storyReady ? "Fill in every scene in step 1 first." : undefined}
+        locked={!storyReady ? (mode === "story" ? "Plan your story and open a part in step 1 first." : "Fill in every scene in step 1 first.") : undefined}
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block">
@@ -814,7 +1266,7 @@ export default function MergeTester() {
           <div className="mt-4">
             <video src={output.url} controls playsInline className="mx-auto max-h-[70vh] rounded-2xl bg-black shadow-xl" />
             <div className="mt-3 flex flex-wrap justify-center gap-2">
-              <a href={output.url} download={`golpo-video.${output.ext}`} className="btn-primary">
+              <a href={output.url} download={`golpo-${activePart !== null ? `part-${activePart + 1}` : "video"}.${output.ext}`} className="btn-primary">
                 ⬇ Download video
               </a>
               <button onClick={shareOutput} className="btn-secondary">

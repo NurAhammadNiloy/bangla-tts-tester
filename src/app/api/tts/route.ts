@@ -13,7 +13,7 @@ export const maxDuration = 120;
  * Returns raw audio (audio/mpeg or audio/wav) plus metric headers.
  */
 export async function POST(req: Request) {
-  if (!rateLimit(`tts:${clientId(req)}`, 20, 60_000)) {
+  if (!rateLimit(`tts:${clientId(req)}`, 60, 60_000)) {
     return Response.json({ error: "Too many requests. Wait a minute and try again." }, { status: 429 });
   }
 
