@@ -22,20 +22,21 @@ const base: EpisodePlan = {
 
 describe("autoDirect", () => {
   it("reads cues from Bangla lines", () => {
-    expect(cueFor("খালা কাঁদতে লাগলেন")).toEqual({ action: "cry", face: "crying" });
-    expect(cueFor("হাসপাতালে গেলাম").action).toBe("walk_in");
-    expect(cueFor("হাসপাতালে গেলাম").face).toBeUndefined();
+    expect(cueFor("খালা কাঁদতে লাগলেন")).toEqual({ action: "cry" });
+    expect(cueFor("ঘরে ঢুকলাম").action).toBe("walk_in");
+    expect(cueFor("অদ্ভুত লাগল")).toEqual({}); // no over-acting from vague words
   });
   it("finds the storyteller", () => {
     expect(protagonist(base)).toBe("me");
   });
-  it("fills empty shots, puts speakers on screen, follows the line, avoids repeats", () => {
+  it("never adds people to empty shots; puts speakers on screen; follows the line; avoids repeats", () => {
     const p = autoDirect(base);
-    expect(p.shots[0].actors).toBeUndefined(); // establishing wide shot on arrival stays empty
-    expect(p.shots[1].actors?.[0].id).toBe("me");
+    expect(p.shots[0].actors).toBeUndefined();
+    expect(p.shots[1].actors).toBeUndefined(); // an empty place stays empty
+    expect(p.cast).toHaveLength(base.cast.length); // no extras
     expect(p.shots[2].actors?.some((a) => a.id === "khala" && a.action === "talk")).toBe(true);
     expect(p.shots[2].camera.focus).toBe("khala");
-    expect(p.shots[3].actors?.[0]).toMatchObject({ action: "cry", face: "crying" });
+    expect(p.shots[3].actors?.[0]).toMatchObject({ action: "cry", face: "neutral" });
     expect(p.shots[4].camera.shot).not.toBe(p.shots[3].camera.shot);
     expect(p.shots.map((s) => s.line)).toEqual(base.shots.map((s) => s.line)); // never touches the words
   });

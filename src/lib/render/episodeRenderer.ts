@@ -193,7 +193,11 @@ export async function renderEpisode(
   recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
   const stopped = new Promise<void>((r) => (recorder.onstop = () => r()));
 
-  if (ac.state !== "running") await ac.resume();
+  if (ac.state !== "running") {
+    // Browsers only start audio after a real tap; never hang if that permission is missing.
+    await Promise.race([ac.resume(), new Promise((r) => setTimeout(r, 3000))]);
+    if ((ac.state as string) !== "running") throw new Error("The browser blocked sound. Tap “Make the video” again.");
+  }
   const t0 = ac.currentTime + 0.25;
   const src = ac.createBufferSource();
   src.buffer = input.soundtrack;

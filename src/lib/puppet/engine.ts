@@ -45,6 +45,13 @@ import { shade } from "./library/characters";
 /** Place units per character-asset unit (a 600-unit character is 780 units tall in a 1920 place). */
 export const ACTOR_SCALE = 1.3;
 
+/** Props that belong on the ceiling (fans, hanging bulbs) and props that spin (fans). */
+const CEILING_RE = /fan|ceiling|chandelier|hanging|bulb|পাখা|ফ্যান/i;
+const SPIN_RE = /fan|পাখা|ফ্যান/i;
+function propText(id: string | undefined, a: PropAsset): string {
+  return `${id ?? ""} ${a.id} ${a.label ?? ""} ${a.tags.join(" ")}`;
+}
+
 export interface BeatOpts {
   /** Shot-relative seconds when this beat starts / ends (camera move timing). */
   start?: number;
@@ -211,7 +218,11 @@ export function buildScene(
   const props: PlacedProp[] = [];
   for (const p of def.props ?? []) {
     const a = resolveProp(plan, p.id, lib);
-    if (a) props.push({ id: p.id, asset: a, x: frameXToPlace(p.x, pw), y: floor });
+    if (!a) continue;
+    // Ceiling props hang with their top just under the ceiling (well above a standing head).
+    const ceilingY = floor - 600 * ACTOR_SCALE * 1.7;
+    const y = CEILING_RE.test(propText(p.id, a)) ? ceilingY + a.anchor[1] * ACTOR_SCALE : floor;
+    props.push({ id: p.id, asset: a, x: frameXToPlace(p.x, pw), y });
   }
 
   const actors: ActorState[] = [];
@@ -298,7 +309,14 @@ export function drawScene(ctx: CanvasRenderingContext2D, base: Mat, sc: SceneSta
   const vm = viewMatrix(sc.view, W, H, ox, oy);
   for (const p of sc.props) {
     const s = ACTOR_SCALE;
-    setMat(ctx, base, [vm[0] * s, 0, 0, vm[3] * s, vm[4] + vm[0] * (p.x - p.asset.anchor[0] * s), vm[5] + vm[3] * (p.y - p.asset.anchor[1] * s)]);
+    if (SPIN_RE.test(propText(p.id, p.asset))) {
+      // A spinning fan seen from the side: the blades sweep, so squeeze the width around the centre.
+      const sx = s * (0.35 + 0.65 * Math.abs(Math.cos(t * 9)));
+      const cx = p.x - p.asset.anchor[0] * s + (p.asset.size[0] * s) / 2;
+      setMat(ctx, base, [vm[0] * sx, 0, 0, vm[3] * s, vm[4] + vm[0] * (cx - (p.asset.size[0] * sx) / 2), vm[5] + vm[3] * (p.y - p.asset.anchor[1] * s)]);
+    } else {
+      setMat(ctx, base, [vm[0] * s, 0, 0, vm[3] * s, vm[4] + vm[0] * (p.x - p.asset.anchor[0] * s), vm[5] + vm[3] * (p.y - p.asset.anchor[1] * s)]);
+    }
     drawShapes(ctx, p.asset.shapes);
   }
   setMat(ctx, base, vm);

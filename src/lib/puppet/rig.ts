@@ -194,13 +194,14 @@ export function drawCharacter(ctx: CanvasRenderingContext2D, asset: CharacterAss
 
 const BROWS: Record<Face, { lift: number; tilt: number }> = {
   neutral: { lift: 0, tilt: 0 },
-  happy: { lift: -0.35, tilt: -0.1 },
-  sad: { lift: 0.05, tilt: 0.8 },
-  crying: { lift: 0.1, tilt: 1 },
-  angry: { lift: 0.35, tilt: -1 },
-  shocked: { lift: -1, tilt: 0.15 },
-  scared: { lift: -0.7, tilt: 0.85 },
-  worried: { lift: -0.25, tilt: 0.65 },
+  // Kept subtle on purpose: story reels read better with small, natural expressions.
+  happy: { lift: -0.2, tilt: -0.06 },
+  sad: { lift: 0.03, tilt: 0.5 },
+  crying: { lift: 0.06, tilt: 0.6 },
+  angry: { lift: 0.2, tilt: -0.6 },
+  shocked: { lift: -0.55, tilt: 0.1 },
+  scared: { lift: -0.4, tilt: 0.5 },
+  worried: { lift: -0.15, tilt: 0.4 },
 };
 
 export const FACES = Object.keys(BROWS) as Face[];
@@ -272,12 +273,12 @@ export function drawFace(ctx: CanvasRenderingContext2D, asset: CharacterAsset, s
       ctx.strokeStyle = ink;
       ctx.lineWidth = e * 0.22;
       ctx.beginPath();
-      ctx.ellipse(ex0, ey, e * 1.15, e * 1.3 * open, 0, 0, Math.PI * 2);
+      ctx.ellipse(ex0, ey, e * 0.9, e * 1.0 * open, 0, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
       ctx.fillStyle = ink;
       ctx.beginPath();
-      ctx.ellipse(ex0 + look * 0.8, ey, e * 0.45, e * 0.5 * open, 0, 0, Math.PI * 2);
+      ctx.ellipse(ex0 + look * 0.8, ey, e * 0.42, e * 0.46 * open, 0, 0, Math.PI * 2);
       ctx.fill();
       continue;
     }
@@ -322,7 +323,7 @@ export function drawFace(ctx: CanvasRenderingContext2D, asset: CharacterAsset, s
     ctx.stroke();
   };
   if (face === "shocked") {
-    fillOpen(e * 0.75, e * (1.0 + 0.4 * open), e * 0.3);
+    fillOpen(e * 0.5, e * (0.55 + 0.3 * open), e * 0.2);
   } else if (open > 0.08) {
     if (face === "happy") {
       // open smile: flat top, round bottom

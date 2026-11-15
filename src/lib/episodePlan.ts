@@ -121,7 +121,17 @@ const SHOT_SCHEMA = obj({
 });
 
 /** Strict JSON schema for the LLM's episode answer (converted by normalizeEpisode). */
+/** Written FIRST, before any shot: the model must understand the story before staging it. */
+export const UNDERSTANDING_SCHEMA = obj({
+  summary: str,
+  people: { type: "array", items: obj({ name: str, who: str, facts: str }) },
+  places: { type: "array", items: obj({ name: str, what: str, who_is_there: str }) },
+  key_moments: { type: "array", items: str },
+  never_show: { type: "array", items: str },
+});
+
 export const EPISODE_SCHEMA = obj({
+  understanding: UNDERSTANDING_SCHEMA,
   series: str,
   episode: int,
   title: str,
@@ -204,6 +214,18 @@ export function buildEpisodePrompt(ctx: EpisodeContext): string {
     prevCast ? `\nCAST FROM EARLIER EPISODES (reuse these exact ids, assets and looks):\n${prevCast}` : "",
     prevPlaces ? `\nPLACES FROM EARLIER EPISODES (reuse these exact ids and assets):\n${prevPlaces}` : "",
     "",
+    "STEP 1 — UNDERSTAND THE STORY (fill `understanding` before any shot)",
+    "- summary: what happens in this part and what it means emotionally.",
+    "- people: EVERY person in the story with exact relationships and facts (e.g. \"রহিমা খালা — widow, lives alone; her ONLY son মিজান lives in Dhaka\"). Count family members exactly.",
+    "- places: each place, what it looks like and who is there (e.g. \"the locked room — completely empty, only a ceiling fan spinning; nobody inside\").",
+    "- key_moments: the 3–6 images the audience must see to feel this part.",
+    "- never_show: anything that would contradict the story (people who do not exist, a second child, someone inside the empty room, objects the story never mentions).",
+    "STEP 2 — STAGE IT. Every shot must obey your understanding:",
+    "- Only people from `people` may appear. Never invent extra family members, children or bystanders the story does not mention.",
+    "- If a place is empty in the story, show it EMPTY: no actors, only the objects the story mentions (e.g. the ceiling fan as a prop, camera wide or medium on it).",
+    "- Only use props and screens that the story itself mentions or clearly implies. Do not decorate with random objects, calendars or lamps.",
+    "- Faces stay natural and calm; use strong faces (shocked, crying, scared) only at the one or two moments the story is truly strong.",
+    "",
     "HOOK (first 3 seconds)",
     "- Shot 1 (hook=true) opens on the strongest moment of THIS part: bad news on a screen, a shocking line, or a flash-forward to the climax of this part, then cut back to where it started.",
     "- Never open with a slow introduction like \"এক গ্রামে ... থাকতেন\" or a description of the weather.",
@@ -217,10 +239,9 @@ export function buildEpisodePrompt(ctx: EpisodeContext): string {
     "",
     "SCREENPLAY (think like a storyboard artist)",
     "- Illustrate what each line is ABOUT, not only where the storyteller stands: a memory → cut to that time and place (younger versions of people are separate cast members, e.g. \"rahima_young\"); a mentioned person → show that person; a mentioned object → an insert shot of it (put the prop in shot.props and set camera.focus to the prop id, camera.shot extreme_close).",
-    "- Change place or time every 3–5 shots. A 2–3 minute part normally uses 4–8 places (homes, roads, shops, school, fields, offices, flashback places) — never 20 shots in one place.",
+    "- When the story moves (another place, a memory, a later time), cut there. When it stays in one place, vary the angle and what we look at (a person, a reaction, an object the story mentions) instead of repeating the same picture.",
     "- Each place gets: an establishing wide shot on arrival, then medium/close shots of people doing the action of the line, then a reaction shot of another character.",
-    "- Busy places (roads, bazaars, schools, offices, hospital wards) have other people in the background.",
-    "- Time passing: a calendar or text_card screen, or the same place at a different time of day.",
+    "- Time passing: the same place at a different time of day; a calendar or text card only when the story mentions dates or days.",
     "",
     "SHOW, THEN TELL",
     "- Every 4–6 shots, show something: a screen (notification, incoming_call, video_call, chat, letter, tv_news, calendar, map, photo, text_card), a prop moment (an actor holds a prop, or a prop placed in the scene), or a change of place. It must fit THIS story.",
