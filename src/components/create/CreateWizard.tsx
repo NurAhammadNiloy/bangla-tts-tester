@@ -17,6 +17,7 @@ import { GENRES, type Genre, type StoryPlan } from "@/lib/storyPlan";
 import { pickDefaultSpeechModel, STYLE_PRESETS, tagFamilyFor } from "@/lib/voiceDirector";
 import type { AssetLibrary, EpisodePlan } from "@/lib/puppet/types";
 import { createShotDrawer } from "@/lib/puppet/engine";
+import { autoDirect } from "@/lib/puppet/autoDirect";
 import { SAMPLE_STORY, SAMPLE_STORY_GENRE } from "@/lib/sampleStory";
 import { estimateEpisode, layoutEpisode } from "@/lib/pipeline/layout";
 import { castVoices, voiceForShot } from "@/lib/pipeline/voices";
@@ -116,6 +117,7 @@ export default function CreateWizard() {
   const previewRef = useRef<HTMLCanvasElement>(null);
   const acRef = useRef<AudioContext | null>(null);
   const lib = useMemo(() => mergeLibrary(library), [library]);
+  const directed = useMemo(() => (plan ? autoDirect(plan, lib) : null), [plan, lib]);
 
   /* ------------------------------ load / save ------------------------------ */
 
@@ -338,14 +340,15 @@ export default function CreateWizard() {
       }
       mark(0, { state: "done", detail: undefined });
       mark(1, { state: "run" });
-      const layout = layoutEpisode(plan, shotVoices.map((v) => v.timing));
-      const soundtrack = await mixEpisode(plan, layout, shotVoices, { music });
+      const shotPlan = autoDirect(plan, lib); // screenplay pass: nobody missing, no repeated pictures
+      const layout = layoutEpisode(shotPlan, shotVoices.map((v) => v.timing));
+      const soundtrack = await mixEpisode(shotPlan, layout, shotVoices, { music });
       mark(1, { state: "done" });
       mark(2, { state: "run" });
       const s = getSettings();
       const input: EpisodeRenderInput = {
         soundtrack,
-        segments: withEndHold(buildSegments(plan, lib, layout, shotVoices), layout.total),
+        segments: withEndHold(buildSegments(shotPlan, lib, layout, shotVoices), layout.total),
         total: layout.total,
         badge: `পর্ব ${bn(partIndex + 1)}`,
         watermark: s.brand.name || undefined,
@@ -362,7 +365,7 @@ export default function CreateWizard() {
       setVideo({ url: URL.createObjectURL(res.blob), blob: res.blob, ext });
       mark(2, { state: "done" });
       mark(3, { state: "run" });
-      const coverBlob = await makeCover(input, plan);
+      const coverBlob = await makeCover(input, shotPlan);
       if (coverBlob) {
         await putAsset(`${pid}/${partIndex}/cover`, coverBlob);
         setCover(URL.createObjectURL(coverBlob));
@@ -620,7 +623,7 @@ export default function CreateWizard() {
           <ol className="mt-3 space-y-3">
             {plan.shots.map((s, i) => (
               <li key={i} className="flex gap-3 rounded-xl border border-line p-2.5">
-                <ShotThumb plan={plan} index={i} lib={lib} />
+                <ShotThumb plan={directed ?? plan} index={i} lib={lib} />
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold text-muted">
                     {i + 1}. {s.speaker === "narrator" ? "Narrator" : (plan.cast.find((c) => c.id === s.speaker)?.name ?? s.speaker)}
