@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_SCENES, DEFAULT_STYLE, VIDEO_MOTION_HINT, type SceneDraft } from "@/lib/mergeSample";
+import { ART_STYLES, buildImagePrompt } from "@/lib/artStyles";
+import { DEFAULT_CHARACTERS, DEFAULT_SCENES, DEFAULT_SETTING, VIDEO_MOTION_HINT, type SceneDraft } from "@/lib/mergeSample";
 import type { SpeechModel } from "@/lib/openrouter/types";
 import type { ImageModel, VideoModel } from "@/lib/openrouter/media";
 import { estimateVideoCost, pickClipDuration } from "@/lib/openrouter/media";
@@ -80,7 +81,11 @@ export default function MergeTester() {
   const [imageModel, setImageModel] = useState("");
   const [videoModel, setVideoModel] = useState("");
   const [videoRes, setVideoRes] = useState("");
-  const [style, setStyle] = useState(DEFAULT_STYLE);
+  const [artId, setArtId] = useState(ART_STYLES[0].id);
+  const [customArt, setCustomArt] = useState("");
+  const [setting, setSetting] = useState(DEFAULT_SETTING);
+  const [characters, setCharacters] = useState(DEFAULT_CHARACTERS);
+  const [imagesStyle, setImagesStyle] = useState<string | null>(null);
   const [scenes, setScenes] = useState<SceneState[]>(DEFAULT_SCENES.map((s) => ({ ...s })));
 
   const [busy, setBusy] = useState<Busy>(null);
@@ -111,6 +116,11 @@ export default function MergeTester() {
       })
       .catch((e) => setLoadError(e instanceof Error ? e.message : "Failed to load models."));
   }, []);
+
+  const art = ART_STYLES.find((a) => a.id === artId);
+  const stylePrompt = artId === "custom" ? customArt : (art?.prompt ?? "");
+  const promptFor = (scene: string) => buildImagePrompt(stylePrompt, setting, characters, scene);
+  const styleChanged = imagesStyle !== null && imagesStyle !== `${artId}|${customArt}`;
 
   const tts = speech.find((m) => m.id === ttsModel);
   const preset = STYLE_PRESETS.find((p) => p.id === presetId)!;
@@ -194,13 +204,14 @@ export default function MergeTester() {
         setMessage({ kind: "info", text: `Drawing image ${i + 1} of ${scenes.length}…` });
         const r = await postJson<{ dataUrl: string; costUsd: number | null }>("/api/image", apiKey.trim(), {
           model: iModel.id,
-          prompt: `${style}\n\nScene: ${scenes[i].prompt}`,
+          prompt: promptFor(scenes[i].prompt),
           references: reference && iModel.acceptsReferences ? [reference] : undefined,
         });
         update(i, { imageUrl: r.dataUrl, imageCost: r.costUsd });
         // Scene 1 becomes the character reference for later scenes.
         if (i === 0) reference = r.dataUrl;
       }
+      setImagesStyle(`${artId}|${customArt}`);
       const hasVideo = scenes.some((s) => s.kind === "video");
       setMessage({
         kind: "ok",
@@ -230,7 +241,7 @@ export default function MergeTester() {
           apiKey.trim(),
           {
             model: vModel.id,
-            prompt: `${style}\n\nScene: ${s.prompt}\n\n${VIDEO_MOTION_HINT}`,
+            prompt: `${promptFor(s.prompt)}\n${VIDEO_MOTION_HINT}`,
             duration: plan.dur,
             resolution: videoRes || undefined,
             firstFrame: s.imageUrl,
@@ -347,9 +358,51 @@ export default function MergeTester() {
       </Card>
 
       <Card n="2" title="Story (4 scenes)">
+        <div className="mb-4">
+          <span className="label">Art style</span>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {[...ART_STYLES, { id: "custom", label: "Custom…", emoji: "✍️", prompt: "", goodFor: "Describe your own" }].map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => setArtId(a.id)}
+                aria-pressed={artId === a.id}
+                className={`rounded-xl border px-3 py-2 text-left transition ${
+                  artId === a.id ? "border-teal-700 bg-teal-700 text-white" : "border-stone-300 hover:border-teal-600 dark:border-stone-700"
+                }`}
+              >
+                <span className="block text-sm font-semibold">
+                  {a.emoji} {a.label}
+                </span>
+                <span className={`block text-xs ${artId === a.id ? "text-teal-50" : "text-stone-500"}`}>{a.goodFor}</span>
+              </button>
+            ))}
+          </div>
+          {artId === "custom" && (
+            <textarea
+              value={customArt}
+              onChange={(e) => setCustomArt(e.target.value)}
+              rows={3}
+              placeholder="Describe the look in English, e.g. 'oil painting, warm golden light, thick brush strokes'"
+              className="input mt-2 text-sm"
+            />
+          )}
+          {styleChanged && (
+            <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">Style changed: tap “Redraw pictures” to apply it.</p>
+          )}
+        </div>
         <details className="mb-3">
-          <summary className="cursor-pointer text-sm font-medium text-teal-700 dark:text-teal-400">Art style &amp; characters (used for every picture)</summary>
-          <textarea value={style} onChange={(e) => setStyle(e.target.value)} rows={5} className="input mt-2 text-sm" />
+          <summary className="cursor-pointer text-sm font-medium text-teal-700 dark:text-teal-400">
+            Characters &amp; setting (kept the same in every picture)
+          </summary>
+          <label className="mt-2 block">
+            <span className="label">Characters</span>
+            <textarea value={characters} onChange={(e) => setCharacters(e.target.value)} rows={4} className="input text-sm" />
+          </label>
+          <label className="mt-2 block">
+            <span className="label">Setting</span>
+            <input value={setting} onChange={(e) => setSetting(e.target.value)} className="input text-sm" />
+          </label>
         </details>
         <div className="space-y-4">
           {scenes.map((s, i) => (

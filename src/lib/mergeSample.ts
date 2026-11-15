@@ -4,11 +4,12 @@ export interface SceneDraft {
   kind: "image" | "video";
 }
 
-/** Shared look + characters, prepended to every image prompt for consistency. */
-export const DEFAULT_STYLE =
-  "Flat 2D cartoon illustration, simple clean shapes, soft warm colors, gentle shading, Bangladeshi village setting, " +
-  "vertical 9:16 composition, no text or letters in the image. " +
-  "Characters: MOTHER — Bangladeshi woman about 55, slim, grey hair in a bun, white cotton saree with a thin red border, small round glasses. " +
+/** Where the story happens (kept for every picture). */
+export const DEFAULT_SETTING = "Bangladeshi village setting.";
+
+/** Fixed character descriptions, reused in every picture so people stay recognisable in any art style. */
+export const DEFAULT_CHARACTERS =
+  "MOTHER — Bangladeshi woman about 55, slim, grey hair in a bun, white cotton saree with a thin red border, small round glasses. " +
   "SON — Bangladeshi man about 30, short black hair, light stubble, blue shirt, carrying a worn travel bag.";
 
 export const DEFAULT_SCENES: SceneDraft[] = [
@@ -36,4 +37,4 @@ export const DEFAULT_SCENES: SceneDraft[] = [
 
 /** Motion direction for image-to-video: keep it small so faces stay consistent. */
 export const VIDEO_MOTION_HINT =
-  "Gentle, slow, natural motion only: the mother's hand moves softly on his head, slight shoulder movement from crying, lamp light flickers, rain outside. Camera static. Keep the same flat 2D cartoon style.";
+  "Gentle, slow, natural motion only: the mother's hand moves softly on his head, slight shoulder movement from crying, lamp light flickers, rain outside. Camera static. Keep exactly the same art style, colors and character designs as the first frame.";
