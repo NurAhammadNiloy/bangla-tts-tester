@@ -5,8 +5,8 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Golpo Studio",
     short_name: "Golpo Studio",
-    description: "Test Bengali text-to-speech through OpenRouter with your own API key.",
-    start_url: "/merge",
+    description: "Turn Bangla stories into vertical story videos with voices, cartoons, music and subtitles.",
+    start_url: "/",
     display: "standalone",
     orientation: "portrait",
     background_color: "#12162e",

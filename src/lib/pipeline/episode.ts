@@ -70,6 +70,7 @@ export async function planEpisode(
       previousCast: opts.previous?.cast,
       previousPlaces: opts.previous?.places,
       narrator: opts.narrator,
+      series: outline.title,
     },
     opts.signal,
   );
