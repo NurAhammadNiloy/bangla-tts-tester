@@ -262,7 +262,7 @@ const comedy: Renderer = (seed, sr) => {
   for (const c of chordTimes(p)) {
     for (let b = 0; b < 4; b++) {
       const tb = c.t + b * beat;
-      if (b % 2 === 0) addPluck(mel, sr, tb, mtof(b === 0 ? c.root : c.root + 7), 0.3, lp.rand, { decay: 0.35, bright: 0.35, maxSec: 0.6 });
+      if (b % 2 === 0) addPluck(mel, sr, tb, mtof(b === 0 ? c.root : c.root + 7), 0.3, lp.rand, { decay: 0.35, bright: 0.12, maxSec: 0.6 });
       else for (const m of c.chord) marimba(mel, sr, tb, m, 0.05, (m - 64) / 12);
     }
     for (let e = 0; e < 8; e++) {

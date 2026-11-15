@@ -457,44 +457,69 @@ export function addTone(t: Target, sr: number, startSec: number, dur: number, fr
   let idx = Math.round(startSec * sr);
   if (t.wrap) idx = ((idx % n) + n) % n;
   const f1 = o.glideTo ?? freq;
-  for (let k = 0; k < total; k++) {
-    if (idx >= n) {
-      if (!t.wrap) break;
-      idx = 0;
-    }
-    const prog = k / total;
-    let f = freq + (f1 - freq) * prog;
-    if (vibDepth) f *= 1 + vibDepth * Math.sin((2 * Math.PI * vibRate * k) / sr);
+  const W = wave === "sine" ? 0 : wave === "tri" ? 1 : wave === "saw" ? 2 : 3;
+  const envAt = (k: number): number => {
+    if (k < aS) return 0.5 - 0.5 * Math.cos((Math.PI * k) / aS);
+    if (k < holdEnd) return 1;
+    return 0.5 + 0.5 * Math.cos((Math.PI * Math.min(rS, k - holdEnd)) / rS);
+  };
+  // Sine via a rotating phasor (no per-sample Math.sin).
+  let pc = Math.cos(2 * Math.PI * ph);
+  let ps = Math.sin(2 * Math.PI * ph);
+  // Block-rate control (pitch, envelope), linear envelope interpolation inside.
+  const B = 32;
+  let e0 = envAt(0);
+  for (let k0 = 0; k0 < total; k0 += B) {
+    const k1 = Math.min(total, k0 + B);
+    const mid = (k0 + k1) / 2;
+    let f = freq + (f1 - freq) * (mid / total);
+    if (vibDepth) f *= 1 + vibDepth * Math.sin((2 * Math.PI * vibRate * mid) / sr);
     const dt = f / sr;
-    let s: number;
-    switch (wave) {
-      case "sine":
-        s = Math.sin(2 * Math.PI * ph);
-        break;
-      case "tri":
-        s = 1 - 4 * Math.abs(ph - 0.5);
-        break;
-      case "saw":
-        s = 2 * ph - 1 - polyBlep(ph, dt);
-        break;
-      case "square": {
-        s = (ph < 0.5 ? 1 : -1) + polyBlep(ph, dt) - polyBlep((ph + 0.5) % 1, dt);
-        break;
+    const e1 = envAt(k1);
+    const de = (e1 - e0) / (k1 - k0);
+    let e = e0;
+    let rc = 0;
+    let rs = 0;
+    if (W === 0) {
+      rc = Math.cos(2 * Math.PI * dt);
+      rs = Math.sin(2 * Math.PI * dt);
+    }
+    for (let k = k0; k < k1; k++) {
+      if (idx >= n) {
+        if (!t.wrap) return;
+        idx = 0;
       }
+      let sv: number;
+      if (W === 0) {
+        sv = ps;
+        const nc = pc * rc - ps * rs;
+        ps = ps * rc + pc * rs;
+        pc = nc;
+      } else {
+        if (W === 1) sv = 1 - 4 * Math.abs(ph - 0.5);
+        else if (W === 2) sv = 2 * ph - 1 - polyBlep(ph, dt);
+        else {
+          const ph2 = ph + 0.5 >= 1 ? ph - 0.5 : ph + 0.5;
+          sv = (ph < 0.5 ? 1 : -1) + polyBlep(ph, dt) - polyBlep(ph2, dt);
+        }
+        ph += dt;
+        if (ph >= 1) ph -= 1;
+      }
+      const g = e * decay;
+      decay *= tauDecay;
+      e += de;
+      if (idx >= 0) {
+        t.L[idx] += sv * gl * g;
+        if (gr !== 0) t.R[idx] += sv * gr * g;
+      }
+      idx++;
     }
-    ph += dt;
-    if (ph >= 1) ph -= 1;
-    let e: number;
-    if (k < aS) e = 0.5 - 0.5 * Math.cos((Math.PI * k) / aS);
-    else if (k < holdEnd) e = 1;
-    else e = 0.5 + 0.5 * Math.cos((Math.PI * Math.min(rS, k - holdEnd)) / rS);
-    e *= decay;
-    decay *= tauDecay;
-    if (idx >= 0) {
-      t.L[idx] += s * gl * e;
-      if (gr !== 0) t.R[idx] += s * gr * e;
+    e0 = e1;
+    if (W === 0) {
+      const m = 1 / Math.hypot(pc, ps);
+      pc *= m;
+      ps *= m;
     }
-    idx++;
   }
 }
 
