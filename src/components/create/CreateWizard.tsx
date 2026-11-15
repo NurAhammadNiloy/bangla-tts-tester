@@ -18,9 +18,10 @@ import { pickDefaultSpeechModel, STYLE_PRESETS, tagFamilyFor } from "@/lib/voice
 import type { AssetLibrary, EpisodePlan } from "@/lib/puppet/types";
 import { createShotDrawer } from "@/lib/puppet/engine";
 import { autoDirect } from "@/lib/puppet/autoDirect";
+import { storyHash } from "@/lib/storyEvidence";
 import { SAMPLE_STORY, SAMPLE_STORY_GENRE } from "@/lib/sampleStory";
 import DirectorReview from "@/components/create/DirectorReview";
-import { mergeSection, type BibleSection, type GateReport, type StoryBible } from "@/lib/storyBible";
+import { applyHardRules, bibleHash, bibleReady, loadBible, mergeSection, revise, type BibleSection, type GateReport, type StoryBible } from "@/lib/storyBible";
 import { estimateEpisode, layoutEpisode } from "@/lib/pipeline/layout";
 import { castVoices, voiceCacheKey, voiceForShot } from "@/lib/pipeline/voices";
 import {
@@ -124,7 +125,12 @@ export default function CreateWizard() {
   const previewRef = useRef<HTMLCanvasElement>(null);
   const acRef = useRef<AudioContext | null>(null);
   const lib = useMemo(() => mergeLibrary(library), [library]);
-  const directed = useMemo(() => (plan ? autoDirect(plan, lib) : null), [plan, lib]);
+  const [planWarnings, setPlanWarnings] = useState<string[]>([]);
+  // autoDirect stages the shots; the bible's hard rules run after it so it can never break them.
+  const directed = useMemo(() => (plan ? applyHardRules(autoDirect(plan, lib), bible?.approvedAt ? bible : null) : null), [plan, lib, bible]);
+  const epRecord = project?.episodes.find((e) => e.index === partIndex);
+  const planStale =
+    !!plan && !!bible?.approvedAt && ((!!epRecord?.bibleHash && epRecord.bibleHash !== bibleHash(bible)) || (!!bible.storyHash && bible.storyHash !== storyHash(story)));
 
   /* ------------------------------ load / save ------------------------------ */
 
@@ -157,7 +163,7 @@ export default function CreateWizard() {
       setMusic(p.settings.music);
       setOutline(p.outline ?? null);
       setLibrary(p.library ?? {});
-      setBible(p.bible ?? null);
+      setBible(p.bible ? loadBible(p.bible, p.story) : null);
       setBibleReport(p.bibleReport ?? null);
       const ep = [...p.episodes].sort((a, b) => b.updatedAt - a.updatedAt)[0];
       if (ep) {
@@ -181,7 +187,7 @@ export default function CreateWizard() {
   }, [params]);
 
   const save = useCallback(
-    async (patch: Partial<ProjectRecord> & { episodePlan?: EpisodePlan | null; status?: "draft" | "planned" | "voiced" | "ready" }) => {
+    async (patch: Partial<ProjectRecord> & { episodePlan?: EpisodePlan | null; status?: "draft" | "planned" | "voiced" | "ready"; planBibleHash?: string }) => {
       const now = Date.now();
       const base: ProjectRecord =
         project ??
@@ -196,7 +202,7 @@ export default function CreateWizard() {
           episodes: [],
           settings: { narrator, captionStyle, format: "9:16", music },
         } as ProjectRecord);
-      const { episodePlan, status, ...rest } = patch;
+      const { episodePlan, status, planBibleHash, ...rest } = patch;
       const next: ProjectRecord = {
         ...base,
         story,
@@ -213,6 +219,7 @@ export default function CreateWizard() {
           title: episodePlan?.title ?? prev.title,
           plan: episodePlan ?? prev.plan,
           status: status ?? prev.status,
+          ...(planBibleHash !== undefined ? { bibleHash: planBibleHash } : {}),
           updatedAt: now,
         };
         if (i >= 0) eps[i] = ep;
@@ -310,8 +317,8 @@ export default function CreateWizard() {
       const r = await makeBible(story, genre, outline?.parts.length ?? 1, getKey()!, ctl.signal);
       const next = mergeSection(bible, r.bible, section);
       setBible(next);
-      setBibleReport(r.report);
-      await save({ bible: next, bibleReport: r.report });
+      setBibleReport(null); // the review works the report out from the bible itself
+      await save({ bible: next, bibleReport: undefined });
     } catch (e) {
       if ((e as Error).name !== "AbortError") setError((e as Error).message);
     } finally {
@@ -319,13 +326,20 @@ export default function CreateWizard() {
     }
   }
 
-  function editBible(b: StoryBible) {
-    setBible(b);
-    void save({ bible: b });
+  /** Content edits make a new revision; approval changes keep the revision. */
+  function editBible(b: StoryBible, kind: "content" | "approval" = "content") {
+    const next = kind === "content" && bible ? revise(bible, b) : b;
+    setBible(next);
+    void save({ bible: next });
   }
 
   async function approveBible() {
     if (!bible) return;
+    const ready = bibleReady(bible, story);
+    if (!ready.ok) {
+      setError(ready.reasons.join(" "));
+      return;
+    }
     const approved = { ...bible, approvedAt: Date.now() };
     setBible(approved);
     await save({ bible: approved });
@@ -335,13 +349,22 @@ export default function CreateWizard() {
   async function directIt(approvedBible: StoryBible | null = bible) {
     if (!outline) return;
     setError(null);
+    if (approvedBible) {
+      // Never plan (or pay for pictures) from an unapproved or outdated Story Bible.
+      const ready = bibleReady(approvedBible, story);
+      if (!ready.ok || !approvedBible.approvedAt) {
+        setError(ready.reasons.join(" ") || "Approve the Director's review first.");
+        setStep("review");
+        return;
+      }
+    }
     const key = getKey()!;
     const ctl = new AbortController();
     abortRef.current = ctl;
     try {
       setBusy(`Directing part ${partIndex + 1}: shots, camera, screens… (about 1 minute)`);
       const prevEp = project?.episodes.find((e) => e.index === partIndex - 1)?.plan ?? null;
-      const { plan: p0 } = await planEpisode(outline, partIndex, lib, key, { narrator, previous: prevEp, bible: approvedBible, fast: !!approvedBible && fastPlanner, signal: ctl.signal });
+      const { plan: p0, warnings: pw } = await planEpisode(outline, partIndex, lib, key, { narrator, previous: prevEp, bible: approvedBible, fast: !!approvedBible && fastPlanner, signal: ctl.signal });
       setBusy("Drawing the new characters and places for your story…");
       const { made, failed } = await buildAssets(p0, lib, key, (t) => setBusy(t), ctl.signal);
       const nextLib: Partial<AssetLibrary> = {
@@ -352,7 +375,8 @@ export default function CreateWizard() {
       const p = finalizePlan(p0, mergeLibrary(nextLib));
       setLibrary(nextLib);
       setPlan(p);
-      await save({ library: nextLib as ProjectRecord["library"], episodePlan: p, status: "planned" });
+      setPlanWarnings(pw);
+      await save({ library: nextLib as ProjectRecord["library"], episodePlan: p, status: "planned", planBibleHash: approvedBible ? bibleHash(approvedBible) : "" });
       if (failed.length) setError(`${failed.length} small item${failed.length > 1 ? "s" : ""} could not be drawn, so ready-made ones are used instead. You can make the video as it is.`);
       setStep("check");
     } catch (e) {
@@ -407,7 +431,8 @@ export default function CreateWizard() {
       }
       mark(0, { state: "done", detail: undefined });
       mark(1, { state: "run" });
-      const shotPlan = autoDirect(plan, lib); // screenplay pass: nobody missing, no repeated pictures
+      // screenplay pass (nobody missing, no repeated pictures), then the bible's hard rules again
+      const shotPlan = applyHardRules(autoDirect(plan, lib), bible?.approvedAt ? bible : null);
       const layout = layoutEpisode(shotPlan, shotVoices.map((v) => v.timing));
       const soundtrack = await mixEpisode(shotPlan, layout, shotVoices, { music });
       mark(1, { state: "done" });
@@ -694,6 +719,24 @@ export default function CreateWizard() {
         <section className={card}>
           <h1 className="font-display text-xl font-extrabold">{plan.title}</h1>
           <p className="mt-1 text-sm text-muted">Check the scenes. Change any line if you like, then make the video.</p>
+          {planStale && (
+            <p role="alert" className="mt-3 rounded-xl border border-bad/40 bg-bad/10 px-3 py-2 text-sm text-bad">
+              This shot plan was made from an older version of the Director&apos;s review. Go back to the review and plan the shots again before making the video.
+            </p>
+          )}
+          {planWarnings.length > 0 && (
+            <details className="mt-3 rounded-xl border border-line bg-surface-2 p-3 text-sm">
+              <summary className="cursor-pointer font-semibold">
+                Story check of this plan: {planWarnings.length} note{planWarnings.length > 1 ? "s" : ""}
+                <Info title="Story check">Plain code compared the shots with your approved review: missing key scenes, lines given to the wrong person, numbers left out, people removed from empty places.</Info>
+              </summary>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-muted">
+                {planWarnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            </details>
+          )}
 
           <div className="mt-4 flex gap-3 overflow-x-auto pb-2" aria-label="Cast">
             {plan.cast.map((c) => (
@@ -743,7 +786,7 @@ export default function CreateWizard() {
               {Math.ceil(estimate.seconds / 60) + 2} min to make
             </p>
           )}
-          <button className={`${primary} mt-5`} disabled={!!busy} onClick={() => withKey(makeIt)}>
+          <button className={`${primary} mt-5`} disabled={!!busy || planStale} onClick={() => withKey(makeIt)}>
             🎬 ভিডিও বানান · Make the video
           </button>
           <button className="mt-3 w-full text-sm font-semibold text-muted underline" onClick={() => withKey(directIt)}>

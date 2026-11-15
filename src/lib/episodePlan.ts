@@ -125,6 +125,7 @@ const SHOT_SCHEMA = obj({
   props: { type: "array", items: obj({ id: str, x: num, state: en(["on", "off"] as const), text: str }) },
   music: en(["normal", "soft", "drop"] as const),
   hold: num,
+  refs: { type: "array", items: str },
 });
 
 /** Strict JSON schema for the LLM's episode answer (converted by normalizeEpisode). */
@@ -759,6 +760,11 @@ export function normalizeEpisode(input: R, ctx: EpisodeContext, warnings: string
     if (music !== "normal") shot.music = music;
     const hold = round2(clamp(n(raw.hold, 0), 0, 5));
     if (hold > 0) shot.hold = hold;
+    const shotRefs = arr(raw.refs)
+      .map((r) => s(r, 40))
+      .filter(Boolean)
+      .slice(0, 8);
+    if (shotRefs.length) shot.refs = shotRefs;
     const sceneProps = arr(raw.props)
       .map(rec)
       .map((p) => {

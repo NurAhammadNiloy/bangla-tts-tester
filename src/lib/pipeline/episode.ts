@@ -4,7 +4,7 @@
  * Every network call goes through our own /api routes with the user's key.
  */
 import type { Genre, StoryPlan } from "@/lib/storyPlan";
-import type { GateReport, StoryBible } from "@/lib/storyBible";
+import { normalizeBible, type GateReport, type StoryBible } from "@/lib/storyBible";
 import { partText } from "@/lib/storyPlan";
 import type { AssetLibrary, EpisodePlan, CastMember, PlaceRef, ShotFrame } from "@/lib/puppet/types";
 import { STARTER_LIBRARY, summarizeLibrary } from "@/lib/puppet/library";
@@ -42,7 +42,8 @@ export function mergeLibrary(extra?: Partial<AssetLibrary> | null): AssetLibrary
 /* ---------------------------------- plan ---------------------------------- */
 
 export async function makeBible(story: string, genre: Genre, partsTotal: number, key: string, signal?: AbortSignal, userRules?: string) {
-  return postJson<{ bible: StoryBible; report: GateReport; model: string }>("/api/bible", key, { text: story, genre, partsTotal, userRules }, signal);
+  const r = await postJson<{ bible: StoryBible; report: GateReport; model: string }>("/api/bible", key, { text: story, genre, partsTotal, userRules }, signal);
+  return { ...r, bible: normalizeBible(r.bible) };
 }
 
 export async function planSeries(story: string, key: string, partMinutes: number | null, signal?: AbortSignal) {

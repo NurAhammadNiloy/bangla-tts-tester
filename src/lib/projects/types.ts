@@ -17,6 +17,8 @@ export interface EpisodeRecord {
   plan?: EpisodePlan;
   /** Asset keys of saved blobs, see AssetKey. */
   assets: string[];
+  /** `bibleHash` of the approved Story Bible this plan was made from (stale when it changes). */
+  bibleHash?: string;
   updatedAt: number;
 }
 

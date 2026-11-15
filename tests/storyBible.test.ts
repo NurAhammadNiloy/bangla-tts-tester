@@ -12,8 +12,10 @@ import {
   foldText,
   inStory,
   matchCharacter,
+  approveSection,
   mergeSection,
   normalizeBible,
+  SECTIONS,
   overSpendLimit,
   runAccuracyGate,
   type StoryBible,
@@ -68,19 +70,20 @@ describe("Story Accuracy Gate", () => {
     expect(bible.characters.map((c) => c.id)).toEqual(["rahima", "mizan"]);
     expect(report.notes.join(" ")).toMatch(/রাহুল/);
   });
-  it("downgrades confirmed facts whose source is not in the story", () => {
+  it("marks claims by evidence instead of silently downgrading them", () => {
     const facts = bible.characters[0].facts;
-    expect(facts[0].kind).toBe("confirmed");
-    expect(facts[1].kind).toBe("inference");
-    expect(facts[1].source).toBeUndefined();
-    expect(facts[1].flag).toBeTruthy();
-    expect(bible.events[0].kind).toBe("confirmed");
+    expect(facts[0].check?.status).toBe("verified");
+    // "has two sons": the story never says two, so it is not backed — and the AI's kind is left alone.
+    expect(facts[1].check?.status).toBe("unverified");
+    expect(facts[1].check?.reason).toMatch(/never says 2/);
+    expect(facts[1].kind).toBe("confirmed");
+    expect(bible.events[0].check?.status).toBe("verified");
   });
   it("drops key lines and numbers that are not in the story", () => {
     expect(bible.keyLines.map((l) => l.text)).toEqual(["মা, আমি ভালো আছি"]);
     expect(bible.keyNumbers.map((n) => n.value)).toEqual(["১৬"]);
-    expect(report.dropped).toBe(3);
-    expect(report.downgraded).toBe(1);
+    expect(report.removed).toBe(3);
+    expect(report.unverified).toBe(2); // "has two sons" + the place with no passage
   });
   it("forces prohibited facts to the prohibited_change kind", () => {
     expect(bible.prohibited[0].kind).toBe("prohibited_change");
@@ -105,11 +108,11 @@ describe("bible → shots", () => {
     const p = bibleToPrompt(bible, 0);
     expect(p).toMatch(/rahima = রহিমা/);
     expect(p).toMatch(/FACT: lives alone/);
-    expect(p).toMatch(/maybe: has two sons/);
+    expect(p).toMatch(/unchecked: has two sons/);
     expect(p).toMatch(/NEVER[\s\S]*Mizan never returns home/);
-    expect(p).toMatch(/Key moments of THIS part[^:]*: the meter/);
+    expect(p).toMatch(/Key scenes of THIS part[\s\S]*K1\. the meter/);
     expect(p).toMatch(/keep it slow/);
-    expect(bibleToPrompt(bible, 1)).not.toMatch(/Key moments of THIS part/);
+    expect(bibleToPrompt(bible, 1)).not.toMatch(/Key scenes of THIS part/);
   });
 
   it("matches cast to bible characters by id, name or mention", () => {
@@ -190,7 +193,7 @@ describe("routes", () => {
     expect(res.status).toBe(200);
     const j = await res.json();
     expect(j.bible.characters).toHaveLength(2);
-    expect(j.report.dropped).toBe(3);
+    expect(j.report.removed).toBe(3);
   });
 
   it("/api/bible rejects an empty story", async () => {
@@ -199,7 +202,10 @@ describe("routes", () => {
   });
 
   it("/api/episode sends the bible to the planner and strips unknown cast", async () => {
-    const bible = runAccuracyGate(normalizeBible(raw), STORY).bible;
+    const gated = runAccuracyGate(normalizeBible(raw), STORY).bible;
+    const unapproved = await episodePost(req("/api/episode", { text: STORY, genre: "emotional", bible: gated, fast: true }));
+    expect(unapproved.status).toBe(409); // never plan from an unapproved bible
+    const bible = SECTIONS.reduce((b, sec) => approveSection(b, sec), gated);
     const episode = {
       understanding: { summary: "s", people: [], places: [], key_moments: [], never_show: [] },
       series: "s", episode: 1, title: "t", caption: "c", mood: "emotional", format: "9:16",

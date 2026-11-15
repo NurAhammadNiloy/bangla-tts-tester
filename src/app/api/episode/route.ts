@@ -11,7 +11,7 @@ import { askJson, cachedFastPlannerModel, cachedPlannerModel, JsonReplyError } f
 import { OpenRouterError } from "@/lib/openrouter/errors";
 import { GENRES, MAX_STORY_CHARS, type Genre } from "@/lib/storyPlan";
 import type { EpisodePlan } from "@/lib/puppet/types";
-import { enforceBible, normalizeBible } from "@/lib/storyBible";
+import { enforceBible, normalizeBible, rawApprovedSections } from "@/lib/storyBible";
 
 export const maxDuration = 300;
 
@@ -57,6 +57,11 @@ export async function POST(req: Request) {
     bible: b.bible && typeof b.bible === "object" ? normalizeBible(b.bible) : undefined,
   };
   const fast = b.fast === true;
+  // Never plan shots (the step before paid pictures) from a bible that is not approved as it is now.
+  if (ctx.bible) {
+    const { open } = rawApprovedSections(b.bible);
+    if (open.length) return Response.json({ error: `Approve the Director's review first (${open.join(", ")} not approved for its current content).` }, { status: 409 });
+  }
 
   try {
     const strong = await cachedPlannerModel();
@@ -104,7 +109,7 @@ export async function POST(req: Request) {
       result = await planWith(strong);
     }
     let plan = result.plan;
-    if (ctx.bible) plan = enforceBible(plan, ctx.bible, warnings);
+    if (ctx.bible) plan = enforceBible(plan, ctx.bible, warnings, { partIndex, partText: text });
     const r = { mode: result.mode };
     if (r.mode === "json_object") warnings.push("The model did not accept the strict schema; used plain JSON mode.");
     return Response.json({ plan, model, warnings });

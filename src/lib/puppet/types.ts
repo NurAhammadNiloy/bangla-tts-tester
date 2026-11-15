@@ -210,6 +210,8 @@ export interface Shot {
   music?: MusicLevel;
   /** Extra seconds of silent picture hold after the line (a key moment sinks in), 0–5. */
   hold?: number;
+  /** Ids of the Story Bible events (E…) and key scenes (K…) this shot shows. */
+  refs?: string[];
 }
 
 export type MusicLevel = "normal" | "soft" | "drop";

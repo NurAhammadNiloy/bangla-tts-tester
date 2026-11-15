@@ -37,7 +37,7 @@ describe("DirectorReview screen", () => {
   it("shows the bible content, the override box and the cost breakdown", () => {
     expect(html).toContain("mother of Mizan");
     expect(html).toContain("Mizan returns");
-    expect(html).toContain("Paste your own direction");
+    expect(html).toContain("Your own direction");
     for (const l of ["Planning", "Pictures", "Voice", "Animation", "Retries"]) expect(html).toContain(l);
   });
   it("blocks the paid step until every card is approved", () => {
