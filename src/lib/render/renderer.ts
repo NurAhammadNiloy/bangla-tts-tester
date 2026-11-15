@@ -12,9 +12,9 @@ import {
   captionsFor,
   fitRate,
   kenBurns,
+  layoutCaption,
   slotAt,
   totalDuration,
-  wrapLines,
   type Caption,
   type Slot,
 } from "./timeline";
@@ -99,37 +99,32 @@ function drawCover(
   ctx.drawImage(src, x, y, dw, dh);
 }
 
-function drawCaption(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  W: number,
-  H: number,
-) {
-  const size = Math.round(W * 0.062);
-  ctx.font = `700 ${size}px ${FONT}`;
-  ctx.textAlign = "center";
+function drawCaption(ctx: CanvasRenderingContext2D, text: string, W: number, H: number) {
+  const measure = (t: string, size: number) => {
+    ctx.font = `700 ${size}px ${FONT}`;
+    const m = ctx.measureText(t).width;
+    // Guard against engines that under-report complex-script widths.
+    const estimate = [...t].length * size * 0.5;
+    return m < estimate * 0.4 ? estimate : m;
+  };
+  const L = layoutCaption(text, W, H, measure);
+  ctx.font = `700 ${L.fontSize}px ${FONT}`;
+  ctx.direction = "ltr";
+  ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  const lines = wrapLines(
-    text,
-    W * 0.86,
-    (s) => ctx.measureText(s).width,
-  ).slice(0, 4);
-  const lh = size * 1.45;
-  const blockH = lines.length * lh;
-  const top = H * 0.78 - blockH / 2;
-  ctx.fillStyle = "rgba(0,0,0,0.45)";
-  const pad = size * 0.5;
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
   ctx.beginPath();
-  ctx.roundRect(W * 0.05, top - pad, W * 0.9, blockH + pad * 2, size * 0.4);
+  if (typeof ctx.roundRect === "function") ctx.roundRect(L.box.x, L.box.y, L.box.w, L.box.h, L.fontSize * 0.4);
+  else ctx.rect(L.box.x, L.box.y, L.box.w, L.box.h);
   ctx.fill();
-  lines.forEach((ln, i) => {
-    const y = top + lh * (i + 0.5);
-    ctx.lineWidth = size * 0.16;
+  ctx.lineJoin = "round";
+  for (const ln of L.lines) {
+    ctx.lineWidth = L.fontSize * 0.14;
     ctx.strokeStyle = "rgba(0,0,0,0.85)";
-    ctx.strokeText(ln, W / 2, y);
+    ctx.strokeText(ln.text, ln.x, ln.y);
     ctx.fillStyle = "#fff";
-    ctx.fillText(ln, W / 2, y);
-  });
+    ctx.fillText(ln.text, ln.x, ln.y);
+  }
 }
 
 export async function renderVideo(

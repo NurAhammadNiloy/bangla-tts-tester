@@ -5,7 +5,7 @@ import { GET as videoGet } from "@/app/api/video/[id]/route";
 import { GET as videoContent } from "@/app/api/video/[id]/content/route";
 import { estimateVideoCost, listImageModels, listVideoModels, parseVideoPricing, pickClipDuration, type VideoModel } from "@/lib/openrouter/media";
 import { _resetRateLimit } from "@/lib/rateLimit";
-import { buildTimeline, captionsFor, cleanSubtitle, fitRate, kenBurns, slotAt, totalDuration, wrapLines } from "@/lib/render/timeline";
+import { buildTimeline, captionsFor, chunkSentence, layoutCaption, cleanSubtitle, fitRate, kenBurns, slotAt, totalDuration, wrapLines } from "@/lib/render/timeline";
 import { pickMimeType } from "@/lib/render/renderer";
 import { DEFAULT_SCENES } from "@/lib/mergeSample";
 import { allowedTags, sanitizeTags } from "@/lib/voiceDirector";
@@ -142,5 +142,47 @@ describe("media routes", () => {
     expect(c.headers.get("content-type")).toBe("video/mp4");
     expect((await c.arrayBuffer()).byteLength).toBe(8);
     expect((await videoGet(new Request("http://x", { headers: auth }), { params: Promise.resolve({ id: "../etc" }) })).status).toBe(400);
+  });
+});
+
+describe("caption layout (explicit centring for iOS)", () => {
+  const measure = (t: string, size: number) => [...t].length * size * 0.5;
+  it("centres every line inside the frame and keeps it below the faces", () => {
+    const text = "ছেলেটা মায়ের পা জড়িয়ে ধরে কেঁদে ফেলল।";
+    const L = layoutCaption(text, 720, 1280, measure);
+    expect(L.lines.length).toBeGreaterThanOrEqual(1);
+    for (const ln of L.lines) {
+      expect(ln.x).toBeGreaterThanOrEqual(0);
+      expect(ln.x + ln.width).toBeLessThanOrEqual(720);
+      expect(ln.x + ln.width / 2).toBeCloseTo(360, 5);
+    }
+    expect(L.box.x).toBeGreaterThanOrEqual(0);
+    expect(L.box.x + L.box.w).toBeLessThanOrEqual(720 + 1e-6);
+    expect(L.box.y).toBeGreaterThan(1280 * 0.7);
+    expect(L.box.y + L.box.h).toBeLessThanOrEqual(1280 * 0.95 + 1e-6);
+  });
+  it("shrinks the font for very long text instead of overflowing", () => {
+    const long = "আমি ".repeat(60).trim();
+    const L = layoutCaption(long, 720, 1280, measure);
+    expect(L.lines.length).toBeLessThanOrEqual(3);
+    expect(L.fontSize).toBeLessThan(Math.round(720 * 0.054));
+    for (const ln of L.lines) expect(ln.width).toBeLessThanOrEqual(720 * 0.84 + 1e-6);
+  });
+});
+
+describe("chunkSentence", () => {
+  it("keeps short sentences and splits long ones at commas/spaces", () => {
+    expect(chunkSentence("মা বসে ছিলেন।")).toEqual(["মা বসে ছিলেন।"]);
+    const long = "বারো বছর পর, এক বৃষ্টির রাতে, দরজায় কড়া নাড়ার শব্দ হলো আর মা চমকে উঠলেন।";
+    const parts = chunkSentence(long);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.join(" ")).toBe(long);
+    for (const p of parts) expect([...p].length).toBeLessThanOrEqual(42);
+  });
+  it("breaks at commas when possible", () => {
+    expect(chunkSentence("বারো বছর পর, এক বৃষ্টির রাতে, দরজায় কড়া নাড়ার শব্দ।")).toEqual([
+      "বারো বছর পর, এক বৃষ্টির রাতে,",
+      "দরজায় কড়া নাড়ার শব্দ।",
+    ]);
   });
 });

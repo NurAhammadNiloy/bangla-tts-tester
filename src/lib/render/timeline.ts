@@ -65,7 +65,8 @@ export interface Caption {
 export function captionsFor(narration: string, audioStart: number, audioDuration: number): Caption[] {
   const clean = cleanSubtitle(narration);
   if (!clean) return [];
-  const parts = clean.match(/[^।?!]+[।?!]*/g)?.map((s) => s.trim()).filter(Boolean) ?? [clean];
+  const sentences = clean.match(/[^।?!]+[।?!]*/g)?.map((s) => s.trim()).filter(Boolean) ?? [clean];
+  const parts = sentences.flatMap((s) => chunkSentence(s));
   const weights = parts.map((p) => Math.max(1, [...p].length));
   const sum = weights.reduce((a, b) => a + b, 0);
   let t = audioStart;
@@ -75,6 +76,41 @@ export function captionsFor(narration: string, audioStart: number, audioDuration
     t += d;
     return c;
   });
+}
+
+/**
+ * Break a long sentence into reel-sized chunks (~42 letters), preferring commas,
+ * then spaces, so each subtitle fits in two short lines.
+ */
+export function chunkSentence(sentence: string, max = 42): string[] {
+  const len = (t: string) => [...t].length;
+  if (len(sentence) <= max) return [sentence];
+  // Natural breaks first: clauses ending in a comma. Overlong clauses fall back to spaces.
+  const clauses = sentence.split(/(?<=,)\s+/).flatMap((c) => {
+    if (len(c) <= max) return [c];
+    const words: string[] = [];
+    let cur = "";
+    for (const w of c.split(/\s+/)) {
+      const next = cur ? `${cur} ${w}` : w;
+      if (len(next) > max && cur) {
+        words.push(cur);
+        cur = w;
+      } else cur = next;
+    }
+    if (cur) words.push(cur);
+    return words;
+  });
+  const out: string[] = [];
+  let cur = "";
+  for (const c of clauses) {
+    const next = cur ? `${cur} ${c}` : c;
+    if (len(next) > max && cur) {
+      out.push(cur);
+      cur = c;
+    } else cur = next;
+  }
+  if (cur) out.push(cur);
+  return out;
 }
 
 /** Ken Burns: gentle zoom in (even scenes) or out (odd), slight drift. p is 0..1 through the slot. */
@@ -101,4 +137,47 @@ export function wrapLines(text: string, maxWidth: number, measure: (s: string) =
   }
   if (line) lines.push(line);
   return lines;
+}
+
+export interface CaptionLayout {
+  fontSize: number;
+  lines: { text: string; x: number; y: number; width: number }[];
+  box: { x: number; y: number; w: number; h: number };
+}
+
+/**
+ * Lay out subtitle lines with explicit x positions (left-aligned drawing), so we
+ * never depend on canvas textAlign, which iOS Safari renders wrongly for Bangla.
+ * `measure(text, fontSize)` returns the text width at that size.
+ */
+export function layoutCaption(
+  text: string,
+  W: number,
+  H: number,
+  measure: (s: string, size: number) => number,
+  opts: { centerY?: number; maxWidthRatio?: number; sizeRatio?: number; maxLines?: number } = {},
+): CaptionLayout {
+  const maxW = W * (opts.maxWidthRatio ?? 0.84);
+  let size = Math.round(W * (opts.sizeRatio ?? 0.054));
+  let lines: string[] = [];
+  // Shrink until every line fits and we have at most maxLines.
+  for (let i = 0; i < 8; i++) {
+    lines = wrapLines(text, maxW, (t) => measure(t, size));
+    const tooWide = lines.some((l) => measure(l, size) > maxW);
+    if (!tooWide && lines.length <= (opts.maxLines ?? 3)) break;
+    size = Math.max(18, Math.round(size * 0.9));
+  }
+  lines = lines.slice(0, opts.maxLines ?? 3); // last resort, never overflow the frame
+  const lh = size * 1.4;
+  const pad = size * 0.45;
+  const widths = lines.map((l) => Math.min(maxW, measure(l, size)));
+  const blockH = lines.length * lh;
+  const boxW = Math.max(...widths, 0) + pad * 2;
+  let top = H * (opts.centerY ?? 0.86) - blockH / 2;
+  top = Math.min(top, H * 0.95 - blockH - pad); // keep clear of the bottom edge
+  return {
+    fontSize: size,
+    lines: lines.map((t, i) => ({ text: t, width: widths[i], x: (W - widths[i]) / 2, y: top + lh * (i + 0.5) })),
+    box: { x: (W - boxW) / 2, y: top - pad, w: boxW, h: blockH + pad * 2 },
+  };
 }
