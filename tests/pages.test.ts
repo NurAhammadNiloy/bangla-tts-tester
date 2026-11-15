@@ -40,3 +40,13 @@ describe("maskKey", () => {
     expect(maskKey("short")).toBe("••••");
   });
 });
+
+import { fitSize } from "@/components/settings/logoFile";
+describe("fitSize", () => {
+  it("fits inside 256 without upscaling", () => {
+    expect(fitSize(1024, 512)).toEqual({ w: 256, h: 128 });
+    expect(fitSize(100, 300)).toEqual({ w: 85, h: 256 });
+    expect(fitSize(64, 64)).toEqual({ w: 64, h: 64 });
+    expect(fitSize(0, 0)).toEqual({ w: 256, h: 256 });
+  });
+});

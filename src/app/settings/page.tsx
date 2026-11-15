@@ -21,7 +21,7 @@ export default function SettingsPage() {
         <section aria-labelledby="studio-h" className="card flex flex-wrap items-center gap-3">
           <div className="min-w-0 flex-1">
             <h2 id="studio-h" className="flex items-center text-lg font-bold">
-              🎛️ Studio (advanced)
+              🎛️ Studio <span className="ml-1.5 text-sm font-medium text-muted">(advanced)</span>
               <Info title="Studio">The full workbench with every setting for each scene. Most people never need it; the Make guide does the same steps for you.</Info>
             </h2>
             <p className="text-sm text-muted">Fine-tune scenes, voices and pictures by hand.</p>

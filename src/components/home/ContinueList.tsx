@@ -10,11 +10,16 @@ import { episodesLabel, projectStatus, projectTitle, sortProjects, styleLabel, t
 /** The 3 latest projects saved in this browser. Renders nothing when there are none. */
 export default function ContinueList() {
   const [items, setItems] = useState<ProjectRecord[] | null>(null);
+  const [now, setNow] = useState(0);
 
   useEffect(() => {
     let live = true;
     listProjects()
-      .then((all) => live && setItems(sortProjects(all).slice(0, 3)))
+      .then((all) => {
+        if (!live) return;
+        setNow(Date.now());
+        setItems(sortProjects(all).slice(0, 3));
+      })
       .catch(() => live && setItems([]));
     return () => {
       live = false;
@@ -22,7 +27,6 @@ export default function ContinueList() {
   }, []);
 
   if (!items || items.length === 0) return null;
-  const now = Date.now();
   return (
     <section aria-labelledby="continue-h">
       <div className="mb-2 flex items-center justify-between">

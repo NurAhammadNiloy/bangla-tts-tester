@@ -44,6 +44,8 @@ export default function BrandBox() {
   const [busy, setBusy] = useState(false);
   const [idea, setIdea] = useState<Idea | null>(null);
   const [askKey, setAskKey] = useState(false);
+  // Raw text while typing (saved value is trimmed, which would eat spaces mid-typing).
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
 
   const save = (patch: Partial<typeof brand>) => {
     const r = saveSettings({ brand: patch });
@@ -117,10 +119,14 @@ export default function BrandBox() {
             <input
               id="brand-name"
               className="input bangla"
-              value={brand.name}
+              value={nameDraft ?? brand.name}
               maxLength={MAX_BRAND_NAME}
               placeholder="e.g. রাতের গল্প"
-              onChange={(e) => save({ name: e.target.value })}
+              onChange={(e) => {
+                setNameDraft(e.target.value);
+                save({ name: e.target.value });
+              }}
+              onBlur={() => setNameDraft(null)}
             />
           </div>
           <div>
@@ -184,6 +190,7 @@ export default function BrandBox() {
                   className="btn-primary px-3 py-1.5"
                   onClick={() => {
                     if (save({ name: idea.name, logoDataUrl: idea.logoDataUrl })) {
+                      setNameDraft(null);
                       setIdea(null);
                       setNotice("Saved your new page name and logo.");
                     }
@@ -206,6 +213,7 @@ export default function BrandBox() {
           className="btn-secondary"
           disabled={empty}
           onClick={() => {
+            setNameDraft(null);
             if (save({ name: "", logoDataUrl: null })) setNotice("Cleared. Videos will have no watermark and a plain end card.");
           }}
         >

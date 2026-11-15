@@ -15,6 +15,7 @@ const TONE = {
 
 export default function ProjectsList() {
   const [items, setItems] = useState<ProjectRecord[] | null>(null);
+  const [now, setNow] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -22,6 +23,7 @@ export default function ProjectsList() {
   const load = useCallback(() => {
     return listProjects()
       .then((all) => {
+        setNow(Date.now());
         setItems(sortProjects(all));
         setError(null);
       })
@@ -72,7 +74,6 @@ export default function ProjectsList() {
     );
   }
 
-  const now = Date.now();
   return (
     <>
       {error && (
