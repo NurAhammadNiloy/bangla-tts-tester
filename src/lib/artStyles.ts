@@ -50,7 +50,7 @@ export const ART_STYLES: ArtStyle[] = [
  * Styles that have a built-in preview picture at /previews/<id>.jpg.
  * Filled in after the one-time preview generation.
  */
-export const PREVIEW_IDS: string[] = [];
+export const PREVIEW_IDS: string[] = ["minimal", "flat", "anime"];
 
 export function previewSrc(id: string): string | null {
   return PREVIEW_IDS.includes(id) ? `/previews/${id}.jpg` : null;
