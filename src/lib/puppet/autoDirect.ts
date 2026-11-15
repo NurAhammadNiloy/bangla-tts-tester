@@ -74,15 +74,36 @@ export function protagonist(plan: EpisodePlan): string | null {
   return best ?? plan.cast[0]?.id ?? null;
 }
 
+/** Bangla object words → starter prop ids, for key-object insert shots (phones and letters use screens instead). */
+const OBJECTS: { re: RegExp; prop: string }[] = [
+  // Only things that look natural standing on the floor in a close-up.
+  { re: /হারিকেন|কুপি|লণ্ঠন/, prop: "lantern" },
+  { re: /ছাতা/, prop: "umbrella" },
+  { re: /স্যুটকেস|সুটকেস|বাক্স|ট্রাংক/, prop: "suitcase" },
+  { re: /ব্যাগ|থলে|বস্তা/, prop: "bag" },
+];
+const TIME_JUMP = /((?:\d+|[০-৯]+|এক|দুই|তিন|চার|পাঁচ|ছয়|সাত|আট|দশ|কয়েক|অনেক)\s*(?:দিন|সপ্তাহ|মাস|বছর))\s*(?:পর|ধরে|কেটে)/;
+const PUBLIC = /street|road|market|bazaar|bazar|school|office|station|hospital|mosque|shop|village|yard|courtyard|field|city|crowd|ward|rasta|haat/i;
+const EXTRA_ASSETS = ["middle_man", "middle_woman", "boy", "old_man", "girl"];
+
 function sig(s: Shot): string {
   const who = (s.actors ?? []).map((a) => a.id).sort().join(",");
   return `${s.place ?? ""}|${s.camera.shot}|${who}|${s.screen ? s.screen.type : ""}`;
 }
 
 export function autoDirect(plan: EpisodePlan, lib?: AssetLibrary): EpisodePlan {
-  void lib;
   const hero = protagonist(plan);
-  const castIds = new Set(plan.cast.map((c) => c.id));
+  // Two background extras so public places feel lived in (never speak, never framed on).
+  const used = new Set(plan.cast.map((c) => c.asset));
+  const extraAssets = EXTRA_ASSETS.filter((a) => !used.has(a) && (!lib || lib.characters[a])).slice(0, 2);
+  const extras = extraAssets.map((asset, k) => ({ id: `extra_${k + 1}`, name: "", asset, look: "background extra", voice: "male" as const }));
+  plan = { ...plan, cast: [...plan.cast, ...extras.filter((e) => !plan.cast.some((c) => c.id === e.id))] };
+  const castIds = new Set(plan.cast.filter((c) => !c.id.startsWith("extra_")).map((c) => c.id));
+  const isPublic = (placeId?: string) => {
+    const ref = plan.places.find((p) => p.id === placeId);
+    return !!ref && PUBLIC.test(`${ref.asset} ${ref.look}`);
+  };
+  let lastInsert = -10;
   const shots: Shot[] = plan.shots.map((s) => structuredClone(s));
   let lastPlace: string | undefined;
   let lastActors: ActorInShot[] = [];
@@ -148,8 +169,31 @@ export function autoDirect(plan: EpisodePlan, lib?: AssetLibrary): EpisodePlan {
       s.camera = { ...s.camera, move: MOVES[i % MOVES.length] === s.camera.move ? MOVES[(i + 1) % MOVES.length] : MOVES[i % MOVES.length] };
     }
 
+    // Time jumps become a calendar card; key objects in narration get an insert close-up.
+    if (s.speaker === "narrator" && i > 0 && i - lastInsert >= 4) {
+      const jump = s.line.match(TIME_JUMP);
+      const obj = OBJECTS.find((o) => o.re.test(s.line) && (!lib || lib.props[o.prop]));
+      if (jump) {
+        s.screen = { type: "calendar", title: jump[1], days: 30, marked: 12 };
+        lastInsert = i;
+      } else if (obj && !arriving) {
+        const props = s.props ?? [];
+        if (!props.some((p) => p.id === obj.prop)) props.push({ id: obj.prop, x: 0.5 });
+        s.props = props;
+        s.camera = { shot: "extreme_close", move: "push_in", focus: obj.prop };
+        delete s.actors; // the object alone fills the frame
+        lastInsert = i;
+      }
+    }
+
+    // Extras at the edges of public places in wide/medium shots.
+    if (extras.length && !s.screen && s.camera.shot !== "extreme_close" && isPublic(s.place) && (s.actors?.length ?? 0) < 3 && ["wide", "medium", "two_shot"].includes(s.camera.shot)) {
+      const xs = [0.1, 0.9];
+      s.actors = [...(s.actors ?? []), ...extras.map((e, k) => ({ id: e.id, x: xs[k], action: "idle" as Action, face: "neutral" as Face, facing: (k ? "left" : "right") as "left" | "right" }))];
+    }
+
     lastPlace = s.place ?? lastPlace;
-    if (s.actors?.length) lastActors = s.actors;
+    if (s.actors?.length) lastActors = s.actors.filter((a) => !a.id.startsWith("extra_"));
   });
 
   return { ...plan, shots };

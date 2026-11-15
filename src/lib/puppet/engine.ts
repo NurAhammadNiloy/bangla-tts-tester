@@ -26,6 +26,7 @@ import { drawCharacter, headPoints, type Pose } from "./rig";
 import { poseAt, travelAt } from "./actions";
 import {
   applyMove,
+  clampView,
   frameShot,
   frameXToPlace,
   layerView,
@@ -117,6 +118,7 @@ export interface ActorState {
 }
 
 export interface PlacedProp {
+  id?: string;
   asset: PropAsset;
   x: number;
   y: number;
@@ -209,7 +211,7 @@ export function buildScene(
   const props: PlacedProp[] = [];
   for (const p of def.props ?? []) {
     const a = resolveProp(plan, p.id, lib);
-    if (a) props.push({ asset: a, x: frameXToPlace(p.x, pw), y: floor });
+    if (a) props.push({ id: p.id, asset: a, x: frameXToPlace(p.x, pw), y: floor });
   }
 
   const actors: ActorState[] = [];
@@ -254,7 +256,16 @@ export function buildScene(
   const fi = actors.findIndex((s) => s.actor.id === focusId);
   const ordered = fi > 0 ? [actors[fi], ...actors.filter((_, i) => i !== fi)] : actors;
   const wide = wideView(place.size, floor, W, H);
-  let view = frameShot(camera.shot, ordered.map((s) => s.box), place.size, floor, W, H);
+  // Insert shot: camera.focus names a placed prop → frame that object large (a key object close-up).
+  const focusProp = fi < 0 ? props.find((pr) => pr.id === focusId) : undefined;
+  let view = focusProp
+    ? (() => {
+        const pw2 = focusProp.asset.size[0] * ACTOR_SCALE;
+        const ph2 = focusProp.asset.size[1] * ACTOR_SCALE;
+        const s = Math.min(W / (pw2 * 1.9), H / (ph2 * 2.6));
+        return clampView({ s, cx: focusProp.x - (focusProp.asset.anchor[0] * ACTOR_SCALE - pw2 / 2), cy: focusProp.y - (focusProp.asset.anchor[1] * ACTOR_SCALE - ph2 / 2) }, place.size, W, H);
+      })()
+    : frameShot(camera.shot, ordered.map((s) => s.box), place.size, floor, W, H);
   const b0 = beat?.start ?? 0;
   const b1 = beat?.end ?? dur;
   const p = (t - b0) / Math.max(0.1, b1 - b0);
