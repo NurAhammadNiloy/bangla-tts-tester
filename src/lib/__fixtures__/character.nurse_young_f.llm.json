@@ -1,0 +1,265 @@
+{
+ "kind": "character",
+ "id": "nurse_young_f",
+ "label": "তরুণী নার্স মিতু",
+ "tags": [
+  "young_woman",
+  "nurse",
+  "uniform",
+  "bangladeshi",
+  "modern"
+ ],
+ "size": [
+  300,
+  600
+ ],
+ "parts": [
+  {
+   "name": "arm_l",
+   "pivot": [
+    115,
+    150
+   ],
+   "z": 1,
+   "shapes": [
+    {
+     "d": "M106 145 H124 L122 300 Q121 308 114 308 Q107 308 107 300 Z",
+     "fill": "#2f3e4f",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    },
+    {
+     "d": "M114 302 C119.5 302 124 306.5 124 312 C124 317.5 119.5 322 114 322 C108.5 322 104 317.5 104 312 C104 306.5 108.5 302 114 302 Z",
+     "fill": "#c8946b",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    }
+   ]
+  },
+  {
+   "name": "leg_l",
+   "pivot": [
+    130,
+    370
+   ],
+   "z": 2,
+   "shapes": [
+    {
+     "d": "M120 370 H142 L140 582 H122 Z",
+     "fill": "#efe7d6",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    },
+    {
+     "d": "M118 580 H148 Q158 600 144 600 H118 Z",
+     "fill": "#5a5a66",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    }
+   ]
+  },
+  {
+   "name": "leg_r",
+   "pivot": [
+    170,
+    370
+   ],
+   "z": 3,
+   "shapes": [
+    {
+     "d": "M158 370 H180 L178 582 H160 Z",
+     "fill": "#efe7d6",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    },
+    {
+     "d": "M156 580 H186 Q196 600 182 600 H156 Z",
+     "fill": "#5a5a66",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    }
+   ]
+  },
+  {
+   "name": "body",
+   "pivot": [
+    150,
+    370
+   ],
+   "z": 4,
+   "shapes": [
+    {
+     "d": "M140 122 H160 V150 H140 Z",
+     "fill": "#c8946b",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    },
+    {
+     "d": "M108 150 Q150 136 192 150 L200 390 H100 Z",
+     "fill": "#efe7d6",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    },
+    {
+     "d": "M108 150 L128 146 L124 380 H104 Z",
+     "fill": "#2f3e4f",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    },
+    {
+     "d": "M172 146 L192 150 L196 380 H176 Z",
+     "fill": "#2f3e4f",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    },
+    {
+     "d": "M140 150 L150 168 L160 150 Z",
+     "fill": "#c94f4f",
+     "stroke": "",
+     "strokeWidth": 0,
+     "opacity": 1
+    }
+   ]
+  },
+  {
+   "name": "hair_back",
+   "pivot": [
+    150,
+    135
+   ],
+   "z": 5,
+   "shapes": [
+    {
+     "d": "M104 70 C116.2 70 126 79.8 126 92 C126 104.2 116.2 114 104 114 C91.8 114 82 104.2 82 92 C82 79.8 91.8 70 104 70 Z",
+     "fill": "#1f1a1c",
+     "stroke": "",
+     "strokeWidth": 0,
+     "opacity": 1
+    },
+    {
+     "d": "M96 60 C96 18 204 18 204 60 L200 110 H100 Z",
+     "fill": "#1f1a1c",
+     "stroke": "",
+     "strokeWidth": 0,
+     "opacity": 1
+    }
+   ]
+  },
+  {
+   "name": "head",
+   "pivot": [
+    150,
+    135
+   ],
+   "z": 6,
+   "shapes": [
+    {
+     "d": "M152 20 C182.9 20 208 46.0 208 78 C208 110.0 182.9 136 152 136 C121.1 136 96 110.0 96 78 C96 46.0 121.1 20 152 20 Z",
+     "fill": "#c8946b",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    },
+    {
+     "d": "M100 70 C105.0 70 109 75.4 109 82 C109 88.6 105.0 94 100 94 C95.0 94 91 88.6 91 82 C91 75.4 95.0 70 100 70 Z",
+     "fill": "#c8946b",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    }
+   ]
+  },
+  {
+   "name": "hair",
+   "pivot": [
+    150,
+    135
+   ],
+   "z": 7,
+   "shapes": [
+    {
+     "d": "M96 66 C100 22 204 18 208 62 Q170 40 140 52 Q118 60 96 66 Z",
+     "fill": "#1f1a1c",
+     "stroke": "",
+     "strokeWidth": 0,
+     "opacity": 1
+    }
+   ]
+  },
+  {
+   "name": "accessory",
+   "pivot": [
+    150,
+    135
+   ],
+   "z": 8,
+   "shapes": [
+    {
+     "d": "M112 28 Q152 8 192 28 L186 44 Q152 30 118 44 Z",
+     "fill": "#efe7d6",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    },
+    {
+     "d": "M146 22 H158 V34 H146 Z",
+     "fill": "#c94f4f",
+     "stroke": "",
+     "strokeWidth": 0,
+     "opacity": 1
+    }
+   ]
+  },
+  {
+   "name": "arm_r",
+   "pivot": [
+    185,
+    150
+   ],
+   "z": 9,
+   "shapes": [
+    {
+     "d": "M176 145 H194 L193 300 Q192 308 185 308 Q178 308 178 300 Z",
+     "fill": "#2f3e4f",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    },
+    {
+     "d": "M186 302 C191.5 302 196 306.5 196 312 C196 317.5 191.5 322 186 322 C180.5 322 176 317.5 176 312 C176 306.5 180.5 302 186 302 Z",
+     "fill": "#c8946b",
+     "stroke": "#2b2730",
+     "strokeWidth": 3,
+     "opacity": 1
+    }
+   ]
+  }
+ ],
+ "face": {
+  "eyeL": [
+   150,
+   76
+  ],
+  "eyeR": [
+   182,
+   76
+  ],
+  "mouth": [
+   172,
+   108
+  ],
+  "eyeSize": 6,
+  "skin": "#c8946b",
+  "ink": "#2b2730"
+ }
+}

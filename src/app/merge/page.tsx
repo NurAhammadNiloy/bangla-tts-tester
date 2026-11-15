@@ -1,12 +1,6 @@
-import type { Metadata } from "next";
-import MergeTester from "@/components/MergeTester";
+import { permanentRedirect } from "next/navigation";
 
-export const metadata: Metadata = { title: "Video Maker · Golpo Studio" };
-
+/** Old address of the Studio. 308 so bookmarks and the installed app keep working. */
 export default function MergePage() {
-  return (
-    <main className="flex-1">
-      <MergeTester />
-    </main>
-  );
+  permanentRedirect("/studio");
 }

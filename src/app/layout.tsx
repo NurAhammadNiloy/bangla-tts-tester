@@ -4,10 +4,11 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Golpo Studio · Bangla story videos",
-  description: "Test Bengali text-to-speech through OpenRouter with your own API key.",
+  description:
+    "Turn a Bangla story into a vertical Facebook story video: Bangla narration, highlighted subtitles and cartoon pictures, made in your browser with your own OpenRouter key.",
   robots: { index: false, follow: false },
-  applicationName: "Bangla TTS",
-  appleWebApp: { capable: true, title: "Bangla TTS", statusBarStyle: "default" },
+  applicationName: "Golpo Studio",
+  appleWebApp: { capable: true, title: "Golpo Studio", statusBarStyle: "default" },
   formatDetection: { telephone: false },
 };
 
@@ -36,6 +37,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col">
         <Nav />
         {children}
+        <div aria-hidden className="h-16 shrink-0 sm:hidden" />
       </body>
     </html>
   );
