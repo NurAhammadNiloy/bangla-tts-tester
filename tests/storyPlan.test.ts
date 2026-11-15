@@ -4,7 +4,13 @@ import {
   MAX_PART_SECONDS,
   normalizeOutline,
   normalizeScenes,
+  castDescriptions,
+  fixShots,
   partSeconds,
+  SCENE_SHOTS,
+  SCENES_SCHEMA,
+  sceneLine,
+  splitCharacters,
   pickPlannerModel,
   splitSentences,
   suggestCaption,
@@ -54,6 +60,59 @@ describe("story plan helpers", () => {
     expect(sc).toHaveLength(1);
     expect(sc[0].narration).not.toContain("zzz");
     expect(() => normalizeScenes({ scenes: [] })).toThrow();
+  });
+
+  it("scene schema is strict: every property is required", () => {
+    const item = SCENES_SCHEMA.properties.scenes.items;
+    expect([...item.required].sort()).toEqual(Object.keys(item.properties).sort());
+    expect(item.properties.shot.enum).toEqual(SCENE_SHOTS);
+  });
+
+  it("keeps each scene's cast and never repeats a shot twice in a row", () => {
+    const sc = normalizeScenes({
+      scenes: [
+        { narration: "এক", picture: "a", cast: ["RINA", "rina", " ", 5], shot: "wide" },
+        { narration: "দুই", picture: "b", cast: [], shot: "wide" },
+        { narration: "তিন", picture: "c", shot: "nonsense" },
+        { narration: "চার", picture: "d", cast: ["BABA"], shot: "close-up" },
+      ],
+    });
+    expect(sc[0].cast).toEqual(["RINA"]);
+    expect(sc[1].cast).toEqual([]);
+    expect(sc[2].cast).toEqual([]);
+    for (let i = 1; i < sc.length; i++) expect(sc[i].shot).not.toBe(sc[i - 1].shot);
+    for (const s of sc) expect(SCENE_SHOTS).toContain(s.shot);
+    expect(sc[0].shot).toBe("wide");
+    expect(sc[3].shot).toBe("close-up");
+  });
+
+  it("fixShots replaces repeats and invalid values", () => {
+    const out = fixShots(["medium", "medium", "medium", undefined, "close-up"]);
+    for (let i = 1; i < out.length; i++) expect(out[i]).not.toBe(out[i - 1]);
+    expect(out[0]).toBe("medium");
+    expect(out[4]).toBe("close-up");
+  });
+
+  it("splits the characters box into named entries", () => {
+    const text = "MOTHER — woman about 55, grey hair in a bun, tin-roof house. SON — man about 30, blue shirt.";
+    expect(splitCharacters(text).map((e) => e.name)).toEqual(["MOTHER", "SON"]);
+    expect(splitCharacters("Rina: girl, 10. Glasses: round\nBaba Karim – old man").map((e) => e.name)).toEqual(["Rina", "Baba Karim"]);
+    expect(splitCharacters("")).toEqual([]);
+  });
+
+  it("picture prompts only describe the characters in the scene", () => {
+    const text = "MOTHER — woman about 55, grey hair. SON — man about 30, blue shirt.";
+    expect(castDescriptions(text, ["son"])).toBe("SON — man about 30, blue shirt.");
+    expect(castDescriptions(text, ["MOTHER"])).not.toContain("SON");
+    expect(castDescriptions(text, [])).toBe("");
+    expect(castDescriptions(text, undefined)).toBe(text);
+    expect(castDescriptions("a girl with a red bag", ["RINA"])).toBe("a girl with a red bag");
+  });
+
+  it("scene line puts the camera shot first", () => {
+    expect(sceneLine("MOTHER at the door", "close-up", ["MOTHER"])).toMatch(/^Camera: Close-up/);
+    expect(sceneLine("an old letter", "object close-up", [])).toContain("No people");
+    expect(sceneLine("x", undefined)).toBe("x");
   });
 
   it("picks a strong text model with structured output", () => {
@@ -106,10 +165,12 @@ describe("POST /api/plan", () => {
   });
 
   it("plans scenes for one part", async () => {
-    mockFetch(handler({ scenes: [{ narration: "আমি গেলাম।", picture: "girl walks", speaker: "", titleTag: "" }] }));
+    mockFetch(handler({ scenes: [{ narration: "আমি গেলাম।", picture: "girl walks", speaker: "", titleTag: "", cast: ["RINA"], shot: "medium" }] }));
     const res = await planPost(req({ mode: "scenes", text: "আমি গেলাম।", genre: "drama", characters: "", setting: "", partTitle: "a", hook: "", isLast: true }));
     expect(res.status).toBe(200);
-    expect((await res.json()).scenes).toHaveLength(1);
+    const scenes = (await res.json()).scenes;
+    expect(scenes).toHaveLength(1);
+    expect(scenes[0]).toMatchObject({ cast: ["RINA"], shot: "medium" });
   });
 
   it("401 without a key", async () => {

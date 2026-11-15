@@ -3,19 +3,39 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ART_STYLES, buildImagePrompt, previewSrc } from "@/lib/artStyles";
 import Info from "@/components/Info";
+import KeyDialog from "@/components/KeyDialog";
 import StylePreviewMaker from "@/components/StylePreviewMaker";
-import { DEFAULT_CHARACTERS, DEFAULT_SCENES, DEFAULT_SETTING, VIDEO_MOTION_HINT, type SceneDraft } from "@/lib/mergeSample";
+import { DEFAULT_SETTING, VIDEO_MOTION_HINT, type SceneDraft } from "@/lib/mergeSample";
 import type { SpeechModel } from "@/lib/openrouter/types";
 import type { ImageModel, VideoModel } from "@/lib/openrouter/media";
 import { estimateVideoCost, pickClipDuration } from "@/lib/openrouter/media";
 import { renderVideo, type RenderScene, type SyncReport } from "@/lib/render/renderer";
 import { buildTimeline, totalDuration } from "@/lib/render/timeline";
-import { formatUsd } from "@/lib/report";
-import { suggestCaption, CAPTION_STYLES, estimateSeconds, GENRES, partSeconds, partText, type CaptionStyle, type PlanScene, type StoryPlan } from "@/lib/storyPlan";
+import { deleteAsset, getAsset, getProject, listAssetKeys, newProjectId, putAsset, putProject, storageAvailable } from "@/lib/projects/db";
+import { clearKey, getKey } from "@/lib/projects/keyStore";
+import type { ProjectRecord } from "@/lib/projects/types";
+import {
+  castDescriptions,
+  CAPTION_STYLES,
+  estimateSeconds,
+  GENRES,
+  partSeconds,
+  partText,
+  SCENE_SHOTS,
+  sceneLine,
+  suggestCaption,
+  type CaptionStyle,
+  type PlanScene,
+  type SceneShot,
+  type StoryPlan,
+} from "@/lib/storyPlan";
 import { pickDefaultSpeechModel, presetVoice, STYLE_PRESETS, tagFamilyFor } from "@/lib/voiceDirector";
 import { groupVoices, type Gender } from "@/lib/voices";
 
 interface SceneState extends SceneDraft {
+  /** Characters visible in this scene (undefined = hand-written scene: use every description). */
+  cast?: string[];
+  shot?: SceneShot;
   audio?: { url: string; buffer: AudioBuffer; seconds: number };
   imageUrl?: string;
   imageCost?: number | null;
@@ -23,6 +43,70 @@ interface SceneState extends SceneDraft {
 }
 
 type Busy = null | "voice" | "images" | "video" | "render";
+type Output = { url: string; blob: Blob; ext: string; mime: string; seconds: number; report: SyncReport[] };
+/** What has been paid for and finished in this project (null = nothing yet). */
+type Spend = { pictures: number | null; clips: number | null; voice: boolean };
+
+/* ---------- saved session (IndexedDB, one ProjectRecord; UI state in `studio`) ---------- */
+const CURRENT_PROJECT = "golpo.studio.current";
+const LEGACY_STORE = "golpo.story.v1";
+
+interface StudioScene extends SceneDraft {
+  cast?: string[];
+  shot?: SceneShot;
+  imageCost?: number | null;
+  audioSeconds?: number;
+  video?: { jobId?: string; status: string; seconds?: number; cost?: number | null };
+  assets: { voice?: string; picture?: string; clip?: string };
+}
+
+interface StudioState {
+  v: 1;
+  mode: "story" | "manual";
+  partMinutes: string;
+  activePart: number | null;
+  madeParts: number[];
+  artId: string;
+  captionPicked: boolean;
+  presetId: string;
+  characters: string;
+  setting: string;
+  ttsModel: string;
+  imageModel: string;
+  videoModel: string;
+  videoRes: string;
+  imagesStyle: string | null;
+  showTags: boolean;
+  spend: Spend;
+  scenes: StudioScene[];
+  output: { key: string; ext: string; mime: string; seconds: number; report: SyncReport[] } | null;
+}
+
+const emptyScene = (): SceneState => ({ narration: "", prompt: "", kind: "image" });
+const NO_SPEND: Spend = { pictures: null, clips: null, voice: false };
+const TAG_RE = /\[[^\]\n]{1,40}\]\s?/g;
+const stripTags = (t: string) => t.replace(TAG_RE, "").replace(/\s{2,}/g, " ");
+
+/** Money for people: "–" until something was paid, then 2 decimals. */
+function money(v: number | null): string {
+  if (v === null) return "–";
+  if (v > 0 && v < 0.005) return "under $0.01";
+  return `$${v.toFixed(2)}`;
+}
+
+function blobToDataUrl(b: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(b);
+  });
+}
+
+function storyTitle(plan: StoryPlan | null, storyText: string, scenes: SceneState[]): string {
+  const first = (plan?.title || storyText.split("\n").find((l) => l.trim()) || stripTags(scenes[0]?.narration ?? "")).trim();
+  return first.slice(0, 60) || "Untitled story";
+}
 
 const PREFERRED_IMAGE = [/^google\/gemini-nano-banana/, /^bytedance-seed\/seedream-5-0-flash/, /^black-forest-labs\/flux-3-image-klein/];
 const PREFERRED_VIDEO = [/^x-ai\/grok-imagine-video-[\d.]+-lite$/, /^minimax\/hailuo/, /^alibaba\/wan/];
@@ -71,7 +155,7 @@ function loadVideo(src: string): Promise<HTMLVideoElement> {
 
 export default function MergeTester() {
   const [apiKey, setApiKey] = useState("");
-  const [showKey, setShowKey] = useState(false);
+  const [keyOpen, setKeyOpen] = useState(false);
 
   const [speech, setSpeech] = useState<SpeechModel[]>([]);
   const [imageModels, setImageModels] = useState<ImageModel[]>([]);
@@ -87,9 +171,9 @@ export default function MergeTester() {
   const [artId, setArtId] = useState("minimal");
   const [showPreviewMaker, setShowPreviewMaker] = useState(false);
   const [setting, setSetting] = useState(DEFAULT_SETTING);
-  const [characters, setCharacters] = useState(DEFAULT_CHARACTERS);
+  const [characters, setCharacters] = useState("");
   const [imagesStyle, setImagesStyle] = useState<string | null>(null);
-  const [scenes, setScenes] = useState<SceneState[]>(DEFAULT_SCENES.map((s) => ({ ...s })));
+  const [scenes, setScenes] = useState<SceneState[]>(() => [emptyScene()]);
   const [mode, setMode] = useState<"story" | "manual">("story");
   const [storyText, setStoryText] = useState("");
   const [partMinutes, setPartMinutes] = useState("auto");
@@ -105,7 +189,12 @@ export default function MergeTester() {
   const [message, setMessage] = useState<{ kind: "info" | "error" | "ok"; text: string } | null>(null);
   const [confirmVideo, setConfirmVideo] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [output, setOutput] = useState<{ url: string; blob: Blob; ext: string; mime: string; seconds: number; report: SyncReport[] } | null>(null);
+  const [output, setOutput] = useState<Output | null>(null);
+  const [spend, setSpend] = useState<Spend>(NO_SPEND);
+  const [showTags, setShowTags] = useState(true);
+  const [redrawing, setRedrawing] = useState<number | null>(null);
+  const [zoom, setZoom] = useState<{ src: string; alt: string } | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const acRef = useRef<AudioContext | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -128,22 +217,34 @@ export default function MergeTester() {
       .then(([sp, media]) => {
         if (sp.error || media.error) throw new Error(sp.error ?? media.error);
         const speechList = sp.models as SpeechModel[];
+        // Keep a model restored from the saved project if it still exists.
+        const keep = (cur: string, ids: { id: string }[], fallback: string) => (cur && ids.some((m) => m.id === cur) ? cur : fallback);
         setSpeech(speechList);
-        setTtsModel(pickDefaultSpeechModel(speechList.map((m) => m.id)));
+        setTtsModel((cur) => keep(cur, speechList, pickDefaultSpeechModel(speechList.map((m) => m.id))));
         setImageModels(media.image);
-        setImageModel(preferred(media.image, PREFERRED_IMAGE));
+        setImageModel((cur) => keep(cur, media.image, preferred(media.image, PREFERRED_IMAGE)));
         setVideoModels(media.video);
         const v = preferred<VideoModel>(media.video, PREFERRED_VIDEO);
-        setVideoModel(v);
-        const vm = (media.video as VideoModel[]).find((m) => m.id === v);
-        setVideoRes(vm?.resolutions.includes("480p") ? "480p" : (vm?.resolutions[0] ?? ""));
+        setVideoModel((cur) => {
+          const chosen = keep(cur, media.video, v);
+          const vm = (media.video as VideoModel[]).find((m) => m.id === chosen);
+          setVideoRes((r) => (r && vm?.resolutions.includes(r) ? r : vm?.resolutions.includes("480p") ? "480p" : (vm?.resolutions[0] ?? "")));
+          return chosen;
+        });
       })
       .catch((e) => setLoadError(e instanceof Error ? e.message : "Failed to load models."));
   }, []);
 
   const art = ART_STYLES.find((a) => a.id === artId);
   const stylePrompt = art?.prompt ?? "";
-  const promptFor = (scene: string) => buildImagePrompt(stylePrompt, setting, characters, scene);
+  /** Picture prompt for one scene: only the characters in it, framed by its camera shot. */
+  const promptFor = (s: Pick<SceneState, "prompt" | "narration" | "cast" | "shot">) =>
+    buildImagePrompt(
+      stylePrompt,
+      setting,
+      castDescriptions(characters, s.cast),
+      sceneLine(s.prompt.trim() || `Illustrate this moment of the story: ${stripTags(s.narration)}`, s.shot, s.cast),
+    );
   const styleChanged = imagesStyle !== null && imagesStyle !== artId;
 
   const tts = speech.find((m) => m.id === ttsModel);
@@ -168,24 +269,125 @@ export default function MergeTester() {
     return { i, dur, cost };
   });
 
-  /* ---------- saved story (browser only, so Part 2 can be made later) ---------- */
-  const STORE = "golpo.story.v1";
+  /* ---------- saved session: everything (incl. voice, pictures, clips, video) in IndexedDB ---------- */
   const [restored, setRestored] = useState(false);
+  const projectIdRef = useRef<string | null>(null);
+  const createdAtRef = useRef(0);
+  /** Asset key → the URL whose bytes are already stored under it (skip rewriting unchanged blobs). */
+  const savedAssetsRef = useRef(new Map<string, string>());
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+
+  async function applyRecord(rec: ProjectRecord) {
+    const st = (rec.studio ?? null) as StudioState | null;
+    projectIdRef.current = rec.id;
+    createdAtRef.current = rec.createdAt;
+    setStoryText(rec.story ?? "");
+    if (rec.outline?.parts?.length) setPlan(rec.outline);
+    setCaptionStyle(rec.settings.captionStyle === "bubbles" ? "box" : rec.settings.captionStyle);
+    setGender(rec.settings.narrator);
+    if (!st || st.v !== 1) return;
+    setMode(st.mode);
+    setPartMinutes(st.partMinutes);
+    setActivePart(st.activePart);
+    setMadeParts(st.madeParts ?? []);
+    setArtId(st.artId);
+    setCaptionPicked(!!st.captionPicked);
+    setPresetId(st.presetId);
+    setCharacters(st.characters ?? "");
+    setSetting(st.setting ?? "");
+    if (st.ttsModel) setTtsModel(st.ttsModel);
+    if (st.imageModel) setImageModel(st.imageModel);
+    if (st.videoModel) setVideoModel(st.videoModel);
+    if (st.videoRes) setVideoRes(st.videoRes);
+    setImagesStyle(st.imagesStyle);
+    setShowTags(st.showTags !== false);
+    setSpend(st.spend ?? NO_SPEND);
+
+    const saved = savedAssetsRef.current;
+    const ac = audioContext();
+    const restoredScenes: SceneState[] = await Promise.all(
+      (st.scenes ?? []).map(async (x) => {
+        const sc: SceneState = {
+          narration: x.narration,
+          prompt: x.prompt,
+          kind: x.kind,
+          speaker: x.speaker,
+          titleTag: x.titleTag,
+          cast: x.cast,
+          shot: x.shot,
+          imageCost: x.imageCost,
+        };
+        try {
+          if (x.assets.voice) {
+            const b = await getAsset(x.assets.voice);
+            if (b) {
+              const url = URL.createObjectURL(b);
+              const buffer = await ac.decodeAudioData(await b.arrayBuffer());
+              sc.audio = { url, buffer, seconds: buffer.duration };
+              saved.set(x.assets.voice, url);
+            }
+          }
+          if (x.assets.picture) {
+            const b = await getAsset(x.assets.picture);
+            if (b) {
+              sc.imageUrl = await blobToDataUrl(b);
+              saved.set(x.assets.picture, sc.imageUrl);
+            }
+          }
+          if (x.assets.clip && x.video) {
+            const b = await getAsset(x.assets.clip);
+            if (b) {
+              const url = URL.createObjectURL(b);
+              sc.video = { ...x.video, status: "completed", url };
+              saved.set(x.assets.clip, url);
+            }
+          }
+        } catch {
+          /* one broken asset: that scene just needs to be made again */
+        }
+        return sc;
+      }),
+    );
+    setScenes(restoredScenes.length ? restoredScenes : [emptyScene()]);
+    if (st.output) {
+      const b = await getAsset(st.output.key).catch(() => null);
+      if (b) {
+        const url = URL.createObjectURL(b);
+        saved.set(st.output.key, url);
+        setOutput({ url, blob: b, ext: st.output.ext, mime: st.output.mime, seconds: st.output.seconds, report: st.output.report ?? [] });
+      }
+    }
+  }
+
+  /** Version 1 kept only the plan in localStorage; bring it over once. */
+  function applyLegacy(): boolean {
+    const saved = JSON.parse(localStorage.getItem(LEGACY_STORE) ?? "null");
+    if (!saved) return false;
+    if (typeof saved.storyText === "string") setStoryText(saved.storyText);
+    if (saved.plan?.parts?.length) setPlan(saved.plan);
+    if (Array.isArray(saved.madeParts)) setMadeParts(saved.madeParts);
+    if (saved.look) {
+      if (saved.look.artId) setArtId(saved.look.artId);
+      if (saved.look.captionStyle) setCaptionStyle(saved.look.captionStyle);
+      if (saved.look.captionPicked) setCaptionPicked(true);
+      if (saved.look.presetId) setPresetId(saved.look.presetId);
+      if (saved.look.characters) setCharacters(saved.look.characters);
+      if (saved.look.setting) setSetting(saved.look.setting);
+    }
+    return true;
+  }
+
   useEffect(() => {
-    const raf = requestAnimationFrame(() => {
+    const raf = requestAnimationFrame(async () => {
       try {
-        const saved = JSON.parse(localStorage.getItem(STORE) ?? "null");
-        if (!saved) return;
-        if (typeof saved.storyText === "string") setStoryText(saved.storyText);
-        if (saved.plan?.parts?.length) setPlan(saved.plan);
-        if (Array.isArray(saved.madeParts)) setMadeParts(saved.madeParts);
-        if (saved.look) {
-          if (saved.look.artId) setArtId(saved.look.artId);
-          if (saved.look.captionStyle) setCaptionStyle(saved.look.captionStyle);
-          if (saved.look.captionPicked) setCaptionPicked(true);
-          if (saved.look.presetId) setPresetId(saved.look.presetId);
-          if (saved.look.characters) setCharacters(saved.look.characters);
-          if (saved.look.setting) setSetting(saved.look.setting);
+        setApiKey(getKey());
+        const id = localStorage.getItem(CURRENT_PROJECT);
+        const rec = id && storageAvailable() ? await getProject(id) : null;
+        if (rec) {
+          await applyRecord(rec);
+          setSaveState("saved");
+        } else if (applyLegacy() && storageAvailable()) {
+          localStorage.removeItem(LEGACY_STORE); // it is saved as a project by the next auto-save
         }
       } catch {
         /* storage unavailable or corrupt: start fresh */
@@ -194,22 +396,103 @@ export default function MergeTester() {
       }
     });
     return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
 
-  useEffect(() => {
-    if (!restored) return; // never overwrite the saved story before it has been read back
-    try {
-      localStorage.setItem(
-        STORE,
-        JSON.stringify({ storyText, plan, madeParts, look: { artId, captionStyle, captionPicked, presetId, characters, setting } }),
-      );
-    } catch {
-      /* quota or private mode: the plan just won't survive a reload */
+  async function saveProject(snap: {
+    studio: Omit<StudioState, "scenes" | "output">;
+    scenes: SceneState[];
+    output: Output | null;
+    plan: StoryPlan | null;
+    storyText: string;
+    gender: Gender;
+    captionStyle: CaptionStyle;
+    audioReady: boolean;
+  }) {
+    let id = projectIdRef.current;
+    if (!id) {
+      id = newProjectId();
+      projectIdRef.current = id;
+      createdAtRef.current = Date.now();
+      try {
+        localStorage.setItem(CURRENT_PROJECT, id);
+      } catch {
+        /* the project is still saved; it just won't reopen by itself */
+      }
     }
-  }, [restored, storyText, plan, madeParts, artId, captionStyle, captionPicked, presetId, characters, setting]);
+    const ep = snap.studio.activePart ?? 0;
+    const base = `${id}/${ep}`;
+    const refs: [string, string][] = [];
+    const scenesOut: StudioScene[] = snap.scenes.map((x, i) => {
+      const assets: StudioScene["assets"] = {};
+      if (x.audio) refs.push([(assets.voice = `${base}/voice/${i}`), x.audio.url]);
+      if (x.imageUrl) refs.push([(assets.picture = `${base}/picture/${i}`), x.imageUrl]);
+      if (x.video?.url) refs.push([(assets.clip = `${base}/clip/${i}`), x.video.url]);
+      return {
+        narration: x.narration,
+        prompt: x.prompt,
+        kind: x.kind,
+        speaker: x.speaker,
+        titleTag: x.titleTag,
+        cast: x.cast,
+        shot: x.shot,
+        imageCost: x.imageCost,
+        audioSeconds: x.audio?.seconds,
+        // Unfinished clip jobs cannot be resumed after a reload, so only finished ones are kept.
+        video: x.video?.url ? { jobId: x.video.jobId, status: "completed", seconds: x.video.seconds, cost: x.video.cost } : undefined,
+        assets,
+      };
+    });
+    let output: StudioState["output"] = null;
+    if (snap.output) {
+      output = { key: `${base}/video`, ext: snap.output.ext, mime: snap.output.mime, seconds: snap.output.seconds, report: snap.output.report };
+      refs.push([output.key, snap.output.url]);
+    }
+
+    const saved = savedAssetsRef.current;
+    for (const [key, url] of refs) {
+      if (saved.get(key) === url) continue;
+      const blob = await (await fetch(url)).blob();
+      await putAsset(key, blob);
+      saved.set(key, url);
+    }
+    // Remove blobs this project no longer uses (replaced pictures, removed scenes, other part).
+    const keep = new Set(refs.map(([k]) => k));
+    for (const k of await listAssetKeys(`${id}/`)) {
+      if (!keep.has(k)) {
+        await deleteAsset(k);
+        saved.delete(k);
+      }
+    }
+
+    const { plan: pl, studio } = snap;
+    const now = Date.now();
+    const rec: ProjectRecord = {
+      id,
+      title: storyTitle(pl, snap.storyText, snap.scenes),
+      createdAt: createdAtRef.current || now,
+      updatedAt: now,
+      style: "cinematic",
+      story: snap.storyText,
+      genre: pl?.genre ?? null,
+      outline: pl ?? undefined,
+      episodes: (pl?.parts ?? []).map((p, i) => ({
+        index: i,
+        title: p.title,
+        status: studio.madeParts.includes(i) ? "ready" : i === studio.activePart && snap.audioReady ? "voiced" : p.scenes?.length ? "planned" : "draft",
+        assets: i === ep ? [...keep] : [],
+        updatedAt: now,
+      })),
+      settings: { narrator: snap.gender, captionStyle: snap.captionStyle, format: "9:16", music: false },
+      studio: { ...studio, scenes: scenesOut, output } satisfies StudioState,
+    };
+    await putProject(rec, now);
+  }
 
   function loadScenes(list: PlanScene[]) {
-    setScenes(list.map((x) => ({ narration: x.narration, prompt: x.picture, kind: "image", speaker: x.speaker, titleTag: x.titleTag })));
+    setScenes(
+      list.map((x) => ({ narration: x.narration, prompt: x.picture, kind: "image", speaker: x.speaker, titleTag: x.titleTag, cast: x.cast, shot: x.shot })),
+    );
     setOutput(null);
     setImagesStyle(null);
   }
@@ -280,14 +563,28 @@ export default function MergeTester() {
     }
   }
 
+  /** Start a fresh project. The old one stays in this browser's storage. */
   function startNewStory() {
+    projectIdRef.current = null;
+    createdAtRef.current = 0;
+    savedAssetsRef.current.clear();
+    try {
+      localStorage.removeItem(CURRENT_PROJECT);
+    } catch {
+      /* ignore */
+    }
     setPlan(null);
     setActivePart(null);
     setMadeParts([]);
     setStoryText("");
-    setScenes(DEFAULT_SCENES.map((x) => ({ ...x })));
+    setCharacters("");
+    setScenes([emptyScene()]);
     setOutput(null);
+    setImagesStyle(null);
+    setSpend(NO_SPEND);
     setConfirmNew(false);
+    setSaveState("idle");
+    setMessage({ kind: "ok", text: "New story started." });
   }
 
   function exportPlan() {
@@ -323,12 +620,19 @@ export default function MergeTester() {
   /** Keep edits to the open part's scenes saved in the plan. */
   function syncPart(next: SceneState[]) {
     if (activePart === null || !plan) return;
-    const sc: PlanScene[] = next.map((x) => ({ narration: x.narration, picture: x.prompt, speaker: x.speaker ?? "", titleTag: x.titleTag ?? "" }));
+    const sc: PlanScene[] = next.map((x) => ({
+      narration: x.narration,
+      picture: x.prompt,
+      speaker: x.speaker ?? "",
+      titleTag: x.titleTag ?? "",
+      cast: x.cast,
+      shot: x.shot,
+    }));
     setPlan({ ...plan, parts: plan.parts.map((p, j) => (j === activePart ? { ...p, scenes: sc } : p)) });
   }
 
   function addScene() {
-    const next = [...scenes, { narration: "", prompt: "", kind: "image" as const }];
+    const next = [...scenes, emptyScene()];
     setScenes(next);
     syncPart(next);
   }
@@ -343,13 +647,14 @@ export default function MergeTester() {
   const update = (i: number, patch: Partial<SceneState>) =>
     setScenes((prev) => {
       const next = prev.map((s, j) => (j === i ? { ...s, ...patch } : s));
-      if ("narration" in patch || "prompt" in patch || "speaker" in patch || "titleTag" in patch) syncPart(next);
+      if (["narration", "prompt", "speaker", "titleTag", "cast", "shot"].some((k) => k in patch)) syncPart(next);
       return next;
     });
 
+  /** Paid actions need a key: open the key dialog instead of failing. */
   function needKey(): boolean {
     if (apiKey.trim()) return false;
-    setMessage({ kind: "error", text: "Enter your OpenRouter API key first." });
+    setKeyOpen(true);
     return true;
   }
 
@@ -366,7 +671,7 @@ export default function MergeTester() {
     const ac = audioContext();
     try {
       for (let i = 0; i < scenes.length; i++) {
-        setMessage({ kind: "info", text: `Generating narration ${i + 1} of ${scenes.length}…` });
+        setMessage({ kind: "info", text: `Making the voice… scene ${i + 1} of ${scenes.length}` });
         const res = await fetch("/api/tts", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-openrouter-key": apiKey.trim() },
@@ -385,8 +690,9 @@ export default function MergeTester() {
         const blob = await res.blob();
         const buffer = await ac.decodeAudioData(await blob.arrayBuffer());
         update(i, { audio: { url: URL.createObjectURL(blob), buffer, seconds: buffer.duration } });
+        setSpend((sp) => ({ ...sp, voice: true }));
       }
-      setMessage({ kind: "ok", text: "All narration ready. Scene lengths are now fixed by the audio. Next: visuals." });
+      setMessage({ kind: "ok", text: "Voice ready! Now make the pictures." });
     } catch (e) {
       setMessage({ kind: "error", text: e instanceof Error ? e.message : "Voice generation failed." });
     } finally {
@@ -402,12 +708,7 @@ export default function MergeTester() {
       // Scene 1 first: it becomes the character reference for the rest.
       let done = 0;
       const draw = async (i: number, reference?: string) => {
-        const r = await postJson<{ dataUrl: string; costUsd: number | null }>("/api/image", apiKey.trim(), {
-          model: iModel.id,
-          prompt: promptFor(scenes[i].prompt),
-          references: reference && iModel.acceptsReferences ? [reference] : undefined,
-        });
-        update(i, { imageUrl: r.dataUrl, imageCost: r.costUsd });
+        const r = await drawOne(i, reference);
         done++;
         setMessage({ kind: "info", text: `Drawing pictures… ${done} of ${scenes.length}` });
         return r.dataUrl;
@@ -425,11 +726,43 @@ export default function MergeTester() {
       const hasVideo = scenes.some((s) => s.kind === "video");
       setMessage({
         kind: "ok",
-        text: hasVideo ? "Images ready. Next: animate the video scene (you'll see the cost first)." : "Images ready. Next: render.",
+        text: hasVideo ? "Pictures ready! Now make the moving clip (you'll see the price first)." : "Pictures ready! Now make your video.",
       });
     } catch (e) {
-      setMessage({ kind: "error", text: e instanceof Error ? e.message : "Image generation failed." });
+      setMessage({ kind: "error", text: e instanceof Error ? e.message : "Could not draw the pictures." });
     } finally {
+      setBusy(null);
+    }
+  }
+
+  /** Draw one scene's picture (scene 1's picture is the character reference for the others). */
+  async function drawOne(i: number, reference?: string) {
+    const s = scenes[i];
+    const r = await postJson<{ dataUrl: string; costUsd: number | null }>("/api/image", apiKey.trim(), {
+      model: iModel!.id,
+      prompt: promptFor(s),
+      references: reference && iModel!.acceptsReferences ? [reference] : undefined,
+    });
+    // A new picture makes an old moving clip of this scene out of date.
+    update(i, { imageUrl: r.dataUrl, imageCost: r.costUsd, ...(s.video ? { video: undefined } : {}) });
+    setSpend((sp) => ({ ...sp, pictures: (sp.pictures ?? 0) + (r.costUsd ?? 0) }));
+    return { dataUrl: r.dataUrl };
+  }
+
+  /** ↻ New picture for one scene only. */
+  async function redrawOne(i: number) {
+    if (needKey() || !iModel) return;
+    setBusy("images");
+    setRedrawing(i);
+    setMessage({ kind: "info", text: `Drawing a new picture for scene ${i + 1}…` });
+    try {
+      const ref = i > 0 ? scenes[0].imageUrl : undefined;
+      await drawOne(i, ref);
+      setMessage({ kind: "ok", text: `New picture for scene ${i + 1} is ready.` });
+    } catch (e) {
+      setMessage({ kind: "error", text: e instanceof Error ? e.message : "Could not draw the picture." });
+    } finally {
+      setRedrawing(null);
       setBusy(null);
     }
   }
@@ -451,7 +784,7 @@ export default function MergeTester() {
           apiKey.trim(),
           {
             model: vModel.id,
-            prompt: `${promptFor(s.prompt)}\n${VIDEO_MOTION_HINT}`,
+            prompt: `${promptFor(s)}\n${VIDEO_MOTION_HINT}`,
             duration: plan.dur,
             resolution: videoRes || undefined,
             firstFrame: s.imageUrl,
@@ -466,7 +799,7 @@ export default function MergeTester() {
           const st = await fetch(`/api/video/${id}`, { headers: { "x-openrouter-key": apiKey.trim() } }).then((r) => r.json());
           if (st.error && !st.status) throw new Error(st.error);
           const mins = Math.floor((Date.now() - started) / 60000);
-          setMessage({ kind: "info", text: `Video scene ${plan.i + 1}: ${st.status.replace("_", " ")}… (${mins} min). Usually 1–5 minutes.` });
+          setMessage({ kind: "info", text: `Making the moving clip for scene ${plan.i + 1}… (${mins} min so far, usually 1–5 minutes)` });
           update(plan.i, { video: { jobId: id, status: st.status, cost: st.costUsd } });
           if (st.status === "completed") {
             const res = await fetch(`/api/video/${id}/content`, { headers: { "x-openrouter-key": apiKey.trim() } });
@@ -474,16 +807,17 @@ export default function MergeTester() {
             const url = URL.createObjectURL(await res.blob());
             const v = await loadVideo(url);
             update(plan.i, { video: { jobId: id, status: "completed", url, seconds: v.duration, cost: st.costUsd } });
+            setSpend((sp) => ({ ...sp, clips: (sp.clips ?? 0) + (typeof st.costUsd === "number" ? st.costUsd : 0) }));
             break;
           }
-          if (["failed", "cancelled", "expired"].includes(st.status)) throw new Error(`Video ${st.status}: ${st.error ?? "no details"}`);
-          if (Date.now() - started > 15 * 60_000) throw new Error("Video took longer than 15 minutes. Try again or pick another model.");
+          if (["failed", "cancelled", "expired"].includes(st.status)) throw new Error(`The moving clip did not work (${st.status}). ${st.error ?? ""}`.trim());
+          if (Date.now() - started > 15 * 60_000) throw new Error("The clip took longer than 15 minutes. Try again or pick another video engine.");
         }
       }
-      setMessage({ kind: "ok", text: "Video clip ready. Next: render the final video." });
+      setMessage({ kind: "ok", text: "Moving clip ready! Now make your video." });
     } catch (e) {
       if ((e as Error).name === "AbortError") setMessage({ kind: "info", text: "Stopped waiting. The job may still finish and be billed by OpenRouter." });
-      else setMessage({ kind: "error", text: e instanceof Error ? e.message : "Video generation failed." });
+      else setMessage({ kind: "error", text: e instanceof Error ? e.message : "Could not make the moving clip." });
     } finally {
       setBusy(null);
     }
@@ -495,7 +829,7 @@ export default function MergeTester() {
     setBusy("render");
     setProgress(0);
     setOutput(null);
-    setMessage({ kind: "info", text: "Rendering in real time… keep this screen on and the tab open." });
+    setMessage({ kind: "info", text: "Making your video… keep this screen on and this tab open." });
     const ac = audioContext();
     try {
       await document.fonts.load('700 48px "Hind Siliguri"', "বাংলা");
@@ -521,10 +855,10 @@ export default function MergeTester() {
       const ext = r.mimeType.includes("mp4") ? "mp4" : "webm";
       setOutput({ url: URL.createObjectURL(r.blob), blob: r.blob, ext, mime: r.mimeType, seconds: r.durationSeconds, report: r.report });
       if (activePart !== null) setMadeParts((m) => (m.includes(activePart) ? m : [...m, activePart]));
-      setMessage({ kind: "ok", text: `Done: ${r.durationSeconds.toFixed(1)} s ${ext.toUpperCase()} video.` });
+      setMessage({ kind: "ok", text: `Your video is ready! (${Math.round(r.durationSeconds)} seconds)` });
     } catch (e) {
-      if ((e as Error).name === "AbortError") setMessage({ kind: "info", text: "Render cancelled." });
-      else setMessage({ kind: "error", text: e instanceof Error ? e.message : "Render failed." });
+      if ((e as Error).name === "AbortError") setMessage({ kind: "info", text: "Stopped making the video." });
+      else setMessage({ kind: "error", text: e instanceof Error ? e.message : "Could not make the video." });
     } finally {
       setBusy(null);
     }
@@ -540,10 +874,11 @@ export default function MergeTester() {
     }
   }
 
-  const imgCost = scenes.reduce((a, s) => a + (s.imageCost ?? 0), 0);
-  const vidCost = scenes.reduce((a, s) => a + (s.video?.cost ?? 0), 0);
   const picturesDone = scenes.every((s) => s.imageUrl);
-  const storyReady = (mode === "manual" || activePart !== null) && scenes.length > 0 && scenes.every((s) => s.narration.trim() && s.prompt.trim());
+  // Step 1 is done only when there is something to read aloud: every scene needs narration (so at least one).
+  const storyReady =
+    (mode === "manual" || activePart !== null) && scenes.length > 0 && scenes.every((s) => stripTags(s.narration).trim().length > 0);
+  const paidSomething = spend.pictures !== null || spend.clips !== null || spend.voice;
   const progressSteps = [
     { id: "story", icon: "✍️", label: "Story", done: storyReady },
     { id: "voice", icon: "🔊", label: "Voice", done: audioReady },
@@ -553,8 +888,77 @@ export default function MergeTester() {
   const SCENE_COLORS = ["#F4B13E", "#5AB0F0", "#9B8CFF", "#F07A8A", "#3CC4A6", "#E88BD0"];
   const total = audioReady ? totalDuration(slots) : 0;
 
+  /* ---------- auto-save (debounced) ---------- */
+  const snapshot = useMemo(
+    () => ({
+      studio: {
+        v: 1 as const,
+        mode,
+        partMinutes,
+        activePart,
+        madeParts,
+        artId,
+        captionPicked,
+        presetId,
+        characters,
+        setting,
+        ttsModel,
+        imageModel,
+        videoModel,
+        videoRes,
+        imagesStyle,
+        showTags,
+        spend,
+      },
+      scenes,
+      output,
+      plan,
+      storyText,
+      gender,
+      captionStyle,
+      audioReady,
+    }),
+    [mode, partMinutes, activePart, madeParts, artId, captionPicked, presetId, characters, setting, ttsModel, imageModel, videoModel, videoRes, imagesStyle, showTags, spend, scenes, output, plan, storyText, gender, captionStyle, audioReady],
+  );
+  const isEmpty = !storyText.trim() && !plan && scenes.every((x) => !x.narration.trim() && !x.audio && !x.imageUrl);
+  useEffect(() => {
+    if (!restored || !storageAvailable()) return;
+    if (isEmpty && !projectIdRef.current) return; // nothing worth saving yet
+    const t = setTimeout(() => {
+      setSaveState("saving");
+      saveChainRef.current = saveChainRef.current
+        .then(() => saveProject(snapshot))
+        .then(
+          () => setSaveState("saved"),
+          () => setSaveState("error"),
+        );
+    }, 800);
+    return () => clearTimeout(t);
+  }, [restored, snapshot, isEmpty]);
+
+  // Warn before leaving while something paid or slow is running.
+  const working = !!busy || planning !== null;
+  useEffect(() => {
+    if (!working) return;
+    const onLeave = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [working]);
+
+  useEffect(() => {
+    if (!zoom) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setZoom(null);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [zoom]);
+
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-24 pt-6 sm:pt-10">
+    <div className="studio mx-auto w-full max-w-3xl px-4 pb-24 pt-6 sm:pt-10">
+      {/* Give every small ⓘ button a 40px tap area without changing how it looks. */}
+      <style>{`.studio button[aria-label^="What is"]{position:relative}.studio button[aria-label^="What is"]::after{content:"";position:absolute;inset:-10px;border-radius:9999px}`}</style>
       {/* Hero: the output's own signature — a subtitle with the spoken word lit */}
       <header className="mb-6 text-center">
         <h1 className="text-[2.1rem] font-extrabold leading-tight sm:text-5xl">Turn a Bangla story into a video</h1>
@@ -587,36 +991,44 @@ export default function MergeTester() {
             </li>
           ))}
         </ol>
+        <p className="mt-1 flex items-center justify-end text-[11px] font-semibold text-muted" aria-live="polite">
+          {saveState === "saving" ? "Saving…" : saveState === "saved" ? <span className="text-ok">Saved ✓</span> : saveState === "error" ? <span className="text-bad">Not saved (browser storage full or blocked)</span> : null}
+          {saveState !== "idle" && (
+            <Info title="Saved in this browser">
+              Your story, scenes, settings, voice, pictures, clips and final video are saved in this browser as you work, so a reload
+              or a closed tab does not lose anything. They are not uploaded anywhere. Clearing the browser&apos;s site data removes them.
+            </Info>
+          )}
+        </p>
       </nav>
 
       {loadError && <Note kind="error">{loadError}</Note>}
 
-      <section className="card mb-5">
-        <label className="label" htmlFor="key">
-          🔑 Your OpenRouter key
+      <section className="card mb-5 flex flex-wrap items-center gap-2 !py-3">
+        <span className="flex items-center text-sm font-semibold">
+          🔑 {apiKey ? <span className="ml-1 text-ok">OpenRouter key connected ✓</span> : <span className="ml-1">No OpenRouter key yet</span>}
           <Info title="OpenRouter key">
-            Your personal password for the AI services (voice, pictures, video). Get one at openrouter.ai → Keys. It stays only in
-            this browser tab: it is never saved, and reloading the page forgets it. Every AI step is charged to your OpenRouter
-            balance, not to this app.
+            Your personal password for the AI services (voice, pictures, video). It is saved only in this browser and sent only to this
+            app for each request. Every AI step is charged to your OpenRouter balance, not to this app.
           </Info>
-        </label>
-        <div className="flex gap-2">
-          <input
-            id="key"
-            type={showKey ? "text" : "password"}
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-or-v1-…"
-            autoComplete="off"
-            spellCheck={false}
-            aria-label="OpenRouter API key"
-            className="input font-mono"
-          />
-          <button type="button" onClick={() => setShowKey((v) => !v)} className="btn-secondary w-20">
-            {showKey ? "Hide" : "Show"}
+        </span>
+        <span className="ml-auto flex gap-1.5">
+          <button type="button" onClick={() => setKeyOpen(true)} className={apiKey ? "btn-secondary !py-1.5" : "btn-primary !py-1.5"}>
+            {apiKey ? "Change key" : "Add key"}
           </button>
-        </div>
-        {!apiKey && <p className="hint mt-1.5">Paste it once; all four steps use it.</p>}
+          {apiKey && (
+            <button
+              type="button"
+              onClick={() => {
+                clearKey();
+                setApiKey("");
+              }}
+              className="btn-secondary !py-1.5"
+            >
+              Remove
+            </button>
+          )}
+        </span>
       </section>
 
       {/* STEP 1 */}
@@ -892,8 +1304,21 @@ export default function MergeTester() {
               </Info>
               <span className="ml-auto text-xs text-muted">Edit ▾</span>
             </summary>
-            <textarea value={characters} onChange={(e) => setCharacters(e.target.value)} rows={4} className="input mt-3 text-sm" aria-label="Characters" />
-            <input value={setting} onChange={(e) => setSetting(e.target.value)} className="input mt-2 text-sm" aria-label="Place" />
+            <textarea
+              value={characters}
+              onChange={(e) => setCharacters(e.target.value)}
+              rows={4}
+              className="input mt-3 text-sm"
+              aria-label="Characters"
+              placeholder={"One person per line, in English, e.g.\nRINA — girl about 10, two black braids, red frock, small yellow umbrella"}
+            />
+            <input
+              value={setting}
+              onChange={(e) => setSetting(e.target.value)}
+              className="input mt-2 text-sm"
+              aria-label="Place"
+              placeholder="Where and when the story happens"
+            />
           </details>
         </div>
 
@@ -908,6 +1333,15 @@ export default function MergeTester() {
                 saved with the story.
               </Info>
             </div>
+            <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm font-semibold">
+              <input type="checkbox" checked={showTags} onChange={(e) => setShowTags(e.target.checked)} className="h-5 w-5 accent-[var(--accent)]" />
+              Show voice tags
+              <Info title="Show voice tags">
+                Voice tags are the small English words in [brackets], like [sad] or [whispers]. They tell the voice how to feel and are
+                never spoken or shown in the video. Turn this off to read the story without them. If you edit a line while tags are
+                hidden, that line&apos;s tags are removed.
+              </Info>
+            </label>
             <div className="space-y-3">
               {scenes.map((s, i) => (
                 <div key={i} className="rounded-2xl border border-line bg-bg/40 p-3.5" style={{ borderLeft: `4px solid ${SCENE_COLORS[i % SCENE_COLORS.length]}` }}>
@@ -950,24 +1384,12 @@ export default function MergeTester() {
                   </label>
                   <textarea
                     id={`n${i}`}
-                    value={s.narration}
+                    value={showTags ? s.narration : stripTags(s.narration)}
                     onChange={(e) => update(i, { narration: e.target.value, audio: undefined })}
                     rows={2}
                     lang="bn"
+                    placeholder="এখানে এই দৃশ্যের কথাগুলো লিখুন…"
                     className="input bangla text-base"
-                  />
-                  <label className="label !text-xs !font-semibold text-muted mt-2.5" htmlFor={`p${i}`}>
-                    🖼 Picture shows
-                    <Info title="Picture shows">
-                      What is in the picture, in English: who, doing what, where, time of day and camera (wide or close-up).
-                    </Info>
-                  </label>
-                  <textarea
-                    id={`p${i}`}
-                    value={s.prompt}
-                    onChange={(e) => update(i, { prompt: e.target.value, imageUrl: undefined, video: undefined })}
-                    rows={2}
-                    className="input text-sm"
                   />
                   <div className="mt-2.5 grid grid-cols-2 gap-2">
                     <label className="block">
@@ -991,11 +1413,85 @@ export default function MergeTester() {
                       <input value={s.titleTag ?? ""} onChange={(e) => update(i, { titleTag: e.target.value })} placeholder="None" className="input bangla !py-2 text-sm" />
                     </label>
                   </div>
+                  <details className="mt-2.5 rounded-xl border border-line bg-surface/60 px-3 py-2">
+                    <summary className="flex cursor-pointer list-none items-center text-xs font-semibold text-muted">
+                      ⚙ Advanced
+                      <Info title="Advanced scene settings">
+                        What the picture shows (in English), who is in it and the camera framing. The Story Editor fills these in; change
+                        them only if a picture comes out wrong. After a change, tap “↻ New picture”.
+                      </Info>
+                      <span className="ml-auto">▾</span>
+                    </summary>
+                    <label className="label !text-xs !font-semibold text-muted mt-2.5" htmlFor={`p${i}`}>
+                      🖼 Picture shows
+                      <Info title="Picture shows">
+                        What is in the picture, in English: who, doing what, where and time of day. If empty, the picture is drawn from the
+                        narration.
+                      </Info>
+                    </label>
+                    <textarea
+                      id={`p${i}`}
+                      value={s.prompt}
+                      onChange={(e) => update(i, { prompt: e.target.value })}
+                      rows={2}
+                      className="input text-sm"
+                    />
+                    <div className="mt-2.5 grid grid-cols-2 gap-2">
+                      <label className="block">
+                        <span className="label !mb-1 !text-xs !font-semibold text-muted">
+                          👥 Who is in it
+                          <Info title="Who is in the picture">
+                            Names of the people visible in this picture, separated by commas, as written in Characters. Only their
+                            descriptions are sent to the picture maker. Leave empty to use everyone; write “none” for nobody.
+                          </Info>
+                        </span>
+                        <input
+                          value={s.cast === undefined ? "" : s.cast.length ? s.cast.join(", ") : "none"}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const cast = !v.trim() ? undefined : /^\s*none\s*$/i.test(v) ? [] : v.split(",").map((x) => x.trim()).filter(Boolean);
+                            update(i, { cast });
+                          }}
+                          placeholder="Everyone"
+                          className="input !py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="label !mb-1 !text-xs !font-semibold text-muted">
+                          🎥 Camera
+                          <Info title="Camera shot">
+                            How close the camera is: wide shows the whole place, medium shows people from the waist up, close-up shows a
+                            face, over-shoulder is for talking, object close-up shows an important thing. Scenes in a row look best with
+                            different shots.
+                          </Info>
+                        </span>
+                        <select
+                          value={s.shot ?? ""}
+                          onChange={(e) => update(i, { shot: (e.target.value || undefined) as SceneShot | undefined })}
+                          className="input !py-2 text-sm"
+                        >
+                          <option value="">Any</option>
+                          {SCENE_SHOTS.map((sh) => (
+                            <option key={sh} value={sh}>
+                              {sh}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                  </details>
                   {(s.audio || s.imageUrl || s.video) && (
                     <div className="mt-3 flex flex-wrap items-center gap-3">
                       {s.imageUrl && (
-                        // eslint-disable-next-line @next/next/no-img-element -- generated data: URL
-                        <img src={s.imageUrl} alt={`Scene ${i + 1} picture`} className="h-28 rounded-xl object-cover" />
+                        <div className="flex flex-col items-center gap-1">
+                          <button type="button" onClick={() => setZoom({ src: s.imageUrl!, alt: `Scene ${i + 1} picture` })} aria-label={`Enlarge scene ${i + 1} picture`} className="rounded-xl">
+                            {/* eslint-disable-next-line @next/next/no-img-element -- generated data: URL */}
+                            <img src={s.imageUrl} alt={`Scene ${i + 1} picture`} className="h-28 rounded-xl object-cover" />
+                          </button>
+                          <button type="button" onClick={() => redrawOne(i)} disabled={!!busy} className="btn-secondary !px-2.5 !py-1 !text-xs">
+                            {redrawing === i ? "Drawing…" : "↻ New picture"}
+                          </button>
+                        </div>
                       )}
                       {s.video?.url && <video src={s.video.url} className="h-28 rounded-xl" muted loop autoPlay playsInline />}
                       <div className="space-y-1 text-xs">
@@ -1050,8 +1546,8 @@ export default function MergeTester() {
             <span className="label">
               Narrator
               <Info title="Narrator">
-                Female or male storyteller. A suitable voice is picked for the mood automatically (shown on the button). Try both in
-                the Voice Lab if you are unsure.
+                Female or male storyteller. A suitable voice is picked for the mood automatically (shown on the button). Try both on
+                the Voice page if you are unsure.
               </Info>
             </span>
             <div className="flex gap-1.5">
@@ -1077,7 +1573,7 @@ export default function MergeTester() {
               Change only if you want to compare.
             </Info>
           </summary>
-          <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)} className="input mt-2">
+          <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)} className="input mt-2" aria-label="Voice engine">
             {speech.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.name}
@@ -1144,13 +1640,43 @@ export default function MergeTester() {
         </div>
         {videoScenes.length > 0 && !picturesDone && audioReady && <p className="hint mt-2">Draw the pictures first: each clip starts from its scene&apos;s picture.</p>}
 
+        {scenes.some((x) => x.imageUrl) && (
+          <div className="mt-4">
+            <p className="label !mb-1.5 !text-xs text-muted">
+              Your pictures
+              <Info title="Your pictures">
+                Tap a picture to see it big. Not happy with one? Tap “↻ New picture” under it to draw only that scene again (a few
+                cents).
+              </Info>
+            </p>
+            <ol className="flex gap-2 overflow-x-auto pb-2">
+              {scenes.map((x, i) => (
+                <li key={i} className="flex w-24 shrink-0 flex-col items-center gap-1">
+                  {x.imageUrl ? (
+                    <button type="button" onClick={() => setZoom({ src: x.imageUrl!, alt: `Scene ${i + 1} picture` })} aria-label={`Enlarge scene ${i + 1} picture`} className="block w-full overflow-hidden rounded-xl">
+                      {/* eslint-disable-next-line @next/next/no-img-element -- generated data: URL */}
+                      <img src={x.imageUrl} alt={`Scene ${i + 1} picture`} className="aspect-[9/16] w-full object-cover" />
+                    </button>
+                  ) : (
+                    <span className="flex aspect-[9/16] w-full items-center justify-center rounded-xl bg-surface-2 text-xs text-muted">{redrawing === i ? "Drawing…" : "No picture"}</span>
+                  )}
+                  <span className="text-[11px] font-semibold text-muted">Scene {i + 1}</span>
+                  <button type="button" onClick={() => redrawOne(i)} disabled={!!busy || !audioReady} className="btn-secondary w-full !px-1 !py-1 !text-[11px]">
+                    {redrawing === i ? "Drawing…" : "↻ New picture"}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
         {confirmVideo && (
           <div className="mt-4 rounded-2xl border-2 border-accent bg-accent/10 p-4 text-sm">
             <p className="font-bold">Approve the video cost</p>
             {videoPlan.map((p) => (
               <p key={p.i} className="mt-1">
                 Scene {p.i + 1}: {(slots[p.i].end - slots[p.i].start).toFixed(1)} s of voice → a <b>{p.dur} s clip</b> ({vModel?.name},{" "}
-                {videoRes || "default"}). Estimated <b>{p.cost !== null ? formatUsd(p.cost) : "unknown"}</b>
+                {videoRes || "default"}). Estimated <b>{p.cost !== null ? money(p.cost) : "unknown"}</b>
               </p>
             ))}
             <p className="hint mt-1">Charged by OpenRouter to your key. Takes about 1–5 minutes.</p>
@@ -1274,10 +1800,10 @@ export default function MergeTester() {
               </button>
             </div>
             <p className="hint mt-2 flex items-center justify-center">
-              {output.mime.includes("avc1") ? "MP4 (H.264), plays everywhere." : `Format: ${output.mime.split(";")[0]}`}
-              <Info title="Video format">
-                MP4 with H.264 plays on every phone and uploads to Facebook. Some browsers record a different format; if the file
-                won&apos;t play on iPhone, make the video in Safari or desktop Chrome.
+              {output.ext === "mp4" ? "MP4 video: plays on every phone and on Facebook." : "WebM video: plays on Android and computers."}
+              <Info title="Video file">
+                MP4 plays on every phone and uploads to Facebook. Some browsers can only make WebM; if the file won&apos;t play on an
+                iPhone, make the video again in Safari or desktop Chrome.
               </Info>
             </p>
             <details className="mt-3">
@@ -1312,8 +1838,14 @@ export default function MergeTester() {
             </details>
           </div>
         )}
-        <p className="hint mt-4">
-          Spent this session: pictures {formatUsd(imgCost || null)}, video clips {formatUsd(vidCost || null)}, voice about $0.01
+        <p className="hint mt-4 flex flex-wrap items-center">
+          {paidSomething
+            ? `Spent on this story: pictures ${money(spend.pictures)} · moving clips ${money(spend.clips)} · voice ${spend.voice ? "about $0.01" : "–"}`
+            : "Spent on this story: –"}
+          <Info title="Money spent">
+            What this story has cost on your OpenRouter balance so far, rounded to cents. It shows “–” until something paid has
+            finished. Voice is an estimate; pictures and clips are the prices OpenRouter reported.
+          </Info>
         </p>
       </Step>
 
@@ -1327,6 +1859,31 @@ export default function MergeTester() {
       )}
 
       {message && <Note kind={message.kind}>{message.text}</Note>}
+
+      <KeyDialog
+        open={keyOpen}
+        onClose={() => setKeyOpen(false)}
+        onSaved={(k) => {
+          setApiKey(k);
+          setMessage({ kind: "ok", text: "Key connected. You can make videos now." });
+        }}
+      />
+
+      {zoom && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={zoom.alt}
+          onClick={() => setZoom(null)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element -- generated data: URL */}
+          <img src={zoom.src} alt={zoom.alt} className="max-h-full max-w-full rounded-2xl object-contain shadow-2xl" />
+          <button type="button" onClick={() => setZoom(null)} aria-label="Close picture" className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full bg-black/60 text-xl text-white">
+            ✕
+          </button>
+        </div>
+      )}
     </div>
   );
 }
