@@ -206,6 +206,23 @@ export default function TtsTester() {
     a.click();
   }
 
+  // Mobile: hand the file to the OS share sheet (Save to Files, WhatsApp, Drive…).
+  const canShareFiles =
+    typeof navigator !== "undefined" &&
+    typeof navigator.canShare === "function" &&
+    !!result &&
+    navigator.canShare({ files: [new File([result.blob], `voice.${result.ext}`, { type: result.blob.type })] });
+
+  async function share() {
+    if (!result) return;
+    const file = new File([result.blob], `bangla-tts-${Date.now()}.${result.ext}`, { type: result.blob.type });
+    try {
+      await navigator.share({ files: [file], title: "Bangla TTS test" });
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") download();
+    }
+  }
+
   function saveToLog() {
     if (!result) return;
     setLog((l) => [
@@ -476,6 +493,11 @@ export default function TtsTester() {
             <button onClick={download} className="btn-secondary">
               ⬇ Download .{result.ext}
             </button>
+            {canShareFiles && (
+              <button onClick={share} className="btn-secondary">
+                Share / Save to phone
+              </button>
+            )}
           </div>
 
           <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
