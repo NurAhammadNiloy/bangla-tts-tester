@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Info from "@/components/Info";
 import { bengaliRatio, codePointLength, DEFAULT_BENGALI_TEXT, SAMPLE_STORY } from "@/lib/bengali";
 import type { GenerationStats, RequestedFormat, SpeechModel } from "@/lib/openrouter/types";
 import { MAX_INPUT_CHARS } from "@/lib/validation";
@@ -351,19 +352,19 @@ export default function TtsTester() {
     <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-12">
       <header className="mb-6">
         <h1 className="text-3xl font-bold tracking-tight">🔊 Voice Lab</h1>
-        <p className="mt-1.5 text-stone-600 dark:text-stone-400">
+        <p className="mt-1.5 text-muted">
           Try Bangla voices, moods and emotion tags on one piece of text before making a video. Optional: the Video Maker
           already uses the best settings.
         </p>
-        <ol className="mt-3 grid gap-1.5 text-sm text-stone-600 sm:grid-cols-3 dark:text-stone-400">
-          <li className="rounded-lg bg-white px-3 py-2 dark:bg-stone-900">① Paste your key</li>
-          <li className="rounded-lg bg-white px-3 py-2 dark:bg-stone-900">② Pick a mood and voice</li>
-          <li className="rounded-lg bg-white px-3 py-2 dark:bg-stone-900">③ Generate, listen, rate</li>
+        <ol className="mt-3 grid gap-1.5 text-sm text-muted sm:grid-cols-3">
+          <li className="rounded-xl border border-line bg-surface px-3 py-2">① Paste your key</li>
+          <li className="rounded-xl border border-line bg-surface px-3 py-2">② Pick a mood and voice</li>
+          <li className="rounded-xl border border-line bg-surface px-3 py-2">③ Generate, listen, rate</li>
         </ol>
       </header>
 
       {/* 1. API key */}
-      <Section step="1" title="OpenRouter API key">
+      <Section step="1" title="OpenRouter API key" info="Your personal password for the AI voice service. Get one at openrouter.ai → Keys. It stays only in this browser tab and is forgotten when you reload. Each voice you generate is charged to your OpenRouter balance.">
         <div className="flex gap-2">
           <input
             type={showKey ? "text" : "password"}
@@ -384,7 +385,7 @@ export default function TtsTester() {
             </button>
           )}
         </div>
-        <p className="mt-2 text-xs text-stone-500">
+        <p className="mt-2 text-xs text-muted">
           Kept only in this page&apos;s memory. It is sent over HTTPS to this app&apos;s server, used for one
           request to OpenRouter, and never stored or logged. Reloading the page forgets it. Get a key at{" "}
           <a className="underline" href="https://openrouter.ai/settings/keys" target="_blank" rel="noreferrer">
@@ -395,18 +396,18 @@ export default function TtsTester() {
       </Section>
 
       {/* 2. Model and voice */}
-      <Section step="2" title="Model and voice">
+      <Section step="2" title="Model and voice" info="The model is the AI engine that speaks; the voice is the person you hear. Models marked ‘Bengali in provider docs’ officially support Bangla. Use ♀/♂ to switch between female and male voices.">
         {modelsLoading ? (
-          <p className="text-sm text-stone-500">Loading live model list from OpenRouter…</p>
+          <p className="text-sm text-muted">Loading live model list from OpenRouter…</p>
         ) : modelsError ? (
-          <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+          <div className="rounded-lg border border-bad/60 bg-bad/15 p-3 text-sm text-bad">
             {modelsError}{" "}
             <button onClick={loadModels} className="font-semibold underline">
               Retry
             </button>
           </div>
         ) : models.length === 0 ? (
-          <p className="text-sm text-stone-500">OpenRouter returned no speech models.</p>
+          <p className="text-sm text-muted">OpenRouter returned no speech models.</p>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
@@ -442,8 +443,8 @@ export default function TtsTester() {
                     onClick={() => applyGender(g)}
                     className={`flex-1 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
                       gender === g
-                        ? "border-teal-700 bg-teal-700 text-white"
-                        : "border-stone-300 hover:border-teal-600 dark:border-stone-700"
+                        ? "chip-on"
+                        : "chip-off"
                     }`}
                   >
                     {g === "female" ? "♀ Female" : "♂ Male"}
@@ -482,15 +483,15 @@ export default function TtsTester() {
               )}
             </label>
             {model && (
-              <div className="sm:col-span-2 rounded-lg bg-stone-100 p-3 text-xs text-stone-600 dark:bg-stone-800/60 dark:text-stone-400">
+              <div className="sm:col-span-2 rounded-lg bg-surface-2 p-3 text-xs text-muted">
                 <div className="mb-1 flex flex-wrap items-center gap-2">
-                  <code className="font-mono text-stone-800 dark:text-stone-200">{model.id}</code>
+                  <code className="font-mono text-ink">{model.id}</code>
                   {model.bengaliDocumented ? (
-                    <span className="rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-800 dark:bg-teal-900/60 dark:text-teal-200">
+                    <span className="rounded-full bg-ok/15 px-2 py-0.5 font-semibold text-ok">
                       Bengali in provider docs
                     </span>
                   ) : (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+                    <span className="rounded-full bg-accent/15 px-2 py-0.5 font-semibold text-accent-strong">
                       Bengali untested
                     </span>
                   )}
@@ -505,7 +506,7 @@ export default function TtsTester() {
         <button
           type="button"
           onClick={() => setShowAdvanced((s) => !s)}
-          className="mt-4 text-sm font-medium text-teal-700 hover:underline dark:text-teal-400"
+          className="mt-4 text-sm font-medium text-accent-strong hover:underline"
         >
           {showAdvanced ? "▾ Hide advanced options" : "▸ Advanced options"}
         </button>
@@ -543,8 +544,8 @@ export default function TtsTester() {
       </Section>
 
       {/* 3. Story style */}
-      <Section step="3" title="Story style">
-        <p className="mb-3 text-sm text-stone-600 dark:text-stone-400">
+      <Section step="3" title="Story style" info="The mood of the reading. Each style gives the narrator directions: Bangladeshi Dhaka accent, a character, a scene and a feeling, so the same text can sound sad, scary or funny.">
+        <p className="mb-3 text-sm text-muted">
           Pick the mood. This sets a director&apos;s note (Bangladeshi accent, character, scene) and a matching voice.
         </p>
         <div className="flex flex-wrap gap-2">
@@ -556,8 +557,8 @@ export default function TtsTester() {
               aria-pressed={presetId === p.id}
               className={`rounded-full border px-3.5 py-2 text-sm font-medium transition ${
                 presetId === p.id
-                  ? "border-teal-700 bg-teal-700 text-white"
-                  : "border-stone-300 hover:border-teal-600 dark:border-stone-700"
+                  ? "chip-on"
+                  : "chip-off"
               }`}
             >
               {p.emoji} {p.label}
@@ -566,7 +567,7 @@ export default function TtsTester() {
         </div>
         {supportsInstructions ? (
           <details className="mt-4" open={showNote} onToggle={(e) => setShowNote(e.currentTarget.open)}>
-            <summary className="cursor-pointer text-sm font-medium text-teal-700 dark:text-teal-400">
+            <summary className="cursor-pointer text-sm font-medium text-accent-strong">
               Director&apos;s note {instructions ? "(set)" : "(empty)"}: edit how it should sound
             </summary>
             <textarea
@@ -576,12 +577,12 @@ export default function TtsTester() {
               placeholder="Describe the narrator, the scene, the accent and the emotion…"
               className="input mt-2 text-sm"
             />
-            <p className="mt-1 text-xs text-stone-500">
+            <p className="mt-1 text-xs text-muted">
               Write in English. Avoid words like &quot;quiet&quot;, &quot;flat&quot; or &quot;careful&quot;: they make the voice dull.
             </p>
           </details>
         ) : (
-          <p className="mt-3 text-xs text-stone-500">
+          <p className="mt-3 text-xs text-muted">
             {tagFamily === "elevenlabs"
               ? "ElevenLabs ignores director's notes, so emotion comes from the tags in your text (step 4). For the strongest emotion in Bangla, try a Gemini TTS model."
               : "This model doesn't support director's notes or emotion tags. For emotional Bangla, choose a Gemini TTS model."}
@@ -590,7 +591,7 @@ export default function TtsTester() {
       </Section>
 
       {/* 4. Text */}
-      <Section step="4" title="Bengali text">
+      <Section step="4" title="Bengali text" info="The words that will be spoken. Add English tags like [sad], [whispers] or [long pause] where the feeling changes; they guide the voice and are not read aloud.">
         <textarea
           ref={textRef}
           value={text}
@@ -599,14 +600,14 @@ export default function TtsTester() {
           lang="bn"
           className="input bangla text-lg leading-relaxed"
         />
-        <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs text-stone-500">
-          <span className={overLimit ? "font-semibold text-red-600" : ""}>
+        <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs text-muted">
+          <span className={overLimit ? "font-semibold text-bad" : ""}>
             {tagFamily === "gemini"
               ? `${bytes.toLocaleString()} / ${GEMINI_MAX_BYTES.toLocaleString()} bytes (Gemini limit ≈ 1,300 Bengali letters)`
               : `${chars.toLocaleString()} / ${MAX_INPUT_CHARS.toLocaleString()} characters`}
           </span>
           {chars > 0 && ratio < 0.6 && (
-            <span className="text-amber-700 dark:text-amber-400">Text is mostly non-Bengali script.</span>
+            <span className="text-accent-strong">Text is mostly non-Bengali script.</span>
           )}
           <span className="flex gap-3">
             <button onClick={() => setText(SAMPLE_STORY)} className="underline">
@@ -619,19 +620,26 @@ export default function TtsTester() {
         </div>
 
         {tagFamily !== "none" && (
-          <div className="mt-4 border-t border-stone-200 pt-4 dark:border-stone-800">
+          <div className="mt-4 border-t border-line pt-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-semibold">Emotion tags</span>
+              <span className="flex items-center text-sm font-semibold">
+                Emotion tags
+                <Info title="Emotion tags">
+                  Small directions for the voice, written in English inside [brackets]. Put the cursor where the feeling changes and tap
+                  a tag. Yellow tags change the feeling, grey ones change the pace or add sounds like a sigh. “Auto-add” lets AI place
+                  them for you without changing your words.
+                </Info>
+              </span>
               <button
                 type="button"
                 onClick={autoTag}
                 disabled={tagging || !chars}
-                className="rounded-lg bg-stone-900 px-3 py-2 text-sm font-semibold text-white hover:bg-stone-700 disabled:opacity-50 dark:bg-stone-100 dark:text-stone-900"
+                className="btn-primary"
               >
                 {tagging ? "Adding tags…" : "✨ Auto-add tags with AI"}
               </button>
             </div>
-            <p className="mt-1 text-xs text-stone-500">
+            <p className="mt-1 text-xs text-muted">
               Tap where the feeling changes in the text, then tap a tag. Tags stay in English, even in a Bangla story.
               {countTags(text) > 0 && ` ${countTags(text)} tag(s) in text.`}
             </p>
@@ -643,10 +651,10 @@ export default function TtsTester() {
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => addTag(t)}
-                    className={`rounded-md border px-2 py-1 font-mono text-xs transition hover:border-teal-600 ${
+                    className={`rounded-md border px-2 py-1 font-mono text-xs transition hover:border-accent ${
                       group === "emotion"
-                        ? "border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"
-                        : "border-sky-300 bg-sky-50 dark:border-sky-900 dark:bg-sky-950/30"
+                        ? "border-accent/50 bg-accent/10"
+                        : "border-line bg-surface-2"
                     }`}
                   >
                     [{t}]
@@ -668,7 +676,7 @@ export default function TtsTester() {
         <button
           onClick={generate}
           disabled={busy || modelsLoading || !!modelsError}
-          className="flex-1 rounded-xl bg-teal-700 px-6 py-3.5 text-lg font-semibold text-white shadow-sm transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="flex-1 btn-primary !py-3.5 !text-lg"
         >
           {busy ? "Generating…" : "Generate Voice"}
         </button>
@@ -684,10 +692,10 @@ export default function TtsTester() {
           role="status"
           className={`mb-6 rounded-lg border p-3 text-sm ${
             status.kind === "error"
-              ? "border-red-300 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300"
+              ? "border-bad/60 bg-bad/15 text-bad"
               : status.kind === "loading"
-                ? "border-stone-300 bg-stone-50 text-stone-700 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300"
-                : "border-teal-300 bg-teal-50 text-teal-900 dark:border-teal-900 dark:bg-teal-950/40 dark:text-teal-200"
+                ? "border-line bg-surface-2 text-ink"
+                : "border-ok/60 bg-ok/15 text-ok"
           }`}
         >
           {status.message}
@@ -696,7 +704,7 @@ export default function TtsTester() {
 
       {/* 4. Result */}
       {result && (
-        <Section step="5" title="Result">
+        <Section step="5" title="Result" info="Listen to the voice, download it, and rate how good it sounds. Ratings go into the results log so you can compare models later.">
           <audio
             key={result.url}
             controls
@@ -739,12 +747,12 @@ export default function TtsTester() {
             />
           </dl>
           {result.generationId && (
-            <p className="mt-2 break-all text-xs text-stone-500">
+            <p className="mt-2 break-all text-xs text-muted">
               Generation ID: <code className="font-mono">{result.generationId}</code>
             </p>
           )}
 
-          <div className="mt-6 border-t border-stone-200 pt-4 dark:border-stone-800">
+          <div className="mt-6 border-t border-line pt-4">
             <h3 className="font-semibold">Rate this result</h3>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <Stars label="Audio quality" value={quality} onChange={setQuality} />
@@ -756,7 +764,7 @@ export default function TtsTester() {
               placeholder="Notes, e.g. 'জারভিস' mispronounced, sounds Indian rather than Bangladeshi…"
               className="input mt-3"
             />
-            <button onClick={saveToLog} className="mt-3 rounded-lg bg-stone-900 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900">
+            <button onClick={saveToLog} className="mt-3 btn-primary">
               Save to results log
             </button>
           </div>
@@ -768,7 +776,7 @@ export default function TtsTester() {
         <Section step="6" title={`Results log (${log.length})`}>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="text-stone-500">
+              <thead className="text-muted">
                 <tr>
                   {["Model", "Voice", "Format", "Time", "Cost", "Quality", "Pronunc."].map((h) => (
                     <th key={h} className="py-1 pr-3 font-medium">
@@ -779,7 +787,7 @@ export default function TtsTester() {
               </thead>
               <tbody>
                 {log.map((r, i) => (
-                  <tr key={i} className="border-t border-stone-200 dark:border-stone-800">
+                  <tr key={i} className="border-t border-line">
                     <td className="py-1.5 pr-3 font-mono">{r.model}</td>
                     <td className="pr-3">{r.voice}</td>
                     <td className="pr-3">{r.outputFormat}</td>
@@ -803,25 +811,26 @@ export default function TtsTester() {
               Export JSON
             </button>
           </div>
-          <p className="mt-2 text-xs text-stone-500">The log stays in this tab only. Export it before closing.</p>
+          <p className="mt-2 text-xs text-muted">The log stays in this tab only. Export it before closing.</p>
         </Section>
       )}
 
-      <footer className="mt-10 text-center text-xs text-stone-500">
+      <footer className="mt-10 text-center text-xs text-muted">
         You pay OpenRouter directly for every generation. This app adds no charges.
       </footer>
     </div>
   );
 }
 
-function Section({ step, title, children }: { step: string; title: string; children: React.ReactNode }) {
+function Section({ step, title, info, children }: { step: string; title: string; info?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="mb-6 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm dark:border-stone-800 dark:bg-stone-900">
-      <h2 className="mb-4 flex items-center gap-3 text-lg font-semibold">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-sm text-white">
+    <section className="mb-6 card">
+      <h2 className="mb-4 flex items-center gap-3 text-xl font-bold">
+        <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-accent font-display text-base font-extrabold text-accent-ink">
           {step}
         </span>
         {title}
+        {info && <Info title={title}>{info}</Info>}
       </h2>
       {children}
     </section>
@@ -831,7 +840,7 @@ function Section({ step, title, children }: { step: string; title: string; child
 function Metric({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="min-w-0">
-      <dt className="text-xs text-stone-500">{label}</dt>
+      <dt className="text-xs text-muted">{label}</dt>
       <dd className={`truncate font-medium ${mono ? "font-mono text-xs leading-5" : ""}`} title={value}>
         {value}
       </dd>
@@ -852,8 +861,8 @@ function Stars({ label, value, onChange }: { label: string; value: number; onCha
             onClick={() => onChange(n)}
             className={`h-9 w-9 rounded-lg border text-sm font-semibold transition ${
               n <= value
-                ? "border-teal-700 bg-teal-700 text-white"
-                : "border-stone-300 text-stone-500 hover:border-teal-600 dark:border-stone-700"
+                ? "chip-on"
+                : "chip-off"
             }`}
           >
             {n}

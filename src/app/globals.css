@@ -1,52 +1,126 @@
 @import "tailwindcss";
 
+/*
+ * Golpo Studio tokens.
+ * Night indigo (stories told after dark) + marigold lamp glow — the same yellow
+ * as the highlighted subtitle word in the videos, so the app looks like its output.
+ */
 :root {
-  --background: #f7f5f2;
-  --foreground: #1c1917;
+  --bg: #f3f2fa;
+  --surface: #ffffff;
+  --surface-2: #ecebf6;
+  --line: #dcdaee;
+  --ink: #1a1d3b;
+  --muted: #5e6189;
+  --accent: #f4b13e;
+  --accent-strong: #a86a00; /* accent as text on light surfaces (AA) */
+  --accent-ink: #1a1d3b; /* text on accent fills */
+  --ok: #1f9e83;
+  --bad: #c43d55;
+  --glow: rgba(244, 177, 62, 0.18);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0c0a09;
-    --foreground: #f5f5f4;
+    --bg: #12162e;
+    --surface: #1b2142;
+    --surface-2: #252c55;
+    --line: #343d6e;
+    --ink: #ece9f7;
+    --muted: #a3a6c7;
+    --accent: #f4b13e;
+    --accent-strong: #f6c063;
+    --accent-ink: #1a1d3b;
+    --ok: #3cc4a6;
+    --bad: #f07a8a;
+    --glow: rgba(244, 177, 62, 0.14);
   }
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  /* System fonts only: no build-time font download. Bengali-capable faces first. */
-  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Bengali", "Nirmala UI",
-    sans-serif;
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-ink: var(--accent-ink);
+  --color-ok: var(--ok);
+  --color-bad: var(--bad);
+  --font-sans: "Hind Siliguri", ui-sans-serif, system-ui, "Segoe UI", "Noto Sans Bengali", "Nirmala UI", sans-serif;
+  --font-display: "Baloo Da 2", "Hind Siliguri", ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  color-scheme: light dark;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background:
+    radial-gradient(1200px 500px at 50% -200px, var(--glow), transparent 70%),
+    var(--bg);
+  color: var(--ink);
   font-family: var(--font-sans);
-  /* Keep content clear of the notch / home indicator when installed on iOS. */
+  font-size: 16px;
+  line-height: 1.55;
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   -webkit-tap-highlight-color: transparent;
 }
 
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
 .bangla {
-  font-family: "Noto Sans Bengali", "Hind Siliguri", "Nirmala UI", "Vrinda", "Kohinoor Bangla", var(--font-sans);
+  font-family: "Hind Siliguri", "Noto Sans Bengali", "Nirmala UI", "Vrinda", "Kohinoor Bangla", sans-serif;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
 }
 
 @layer components {
   .input {
-    @apply w-full rounded-lg border border-stone-300 bg-white px-3 py-2.5 text-base outline-none transition
-      focus:border-teal-600 focus:ring-2 focus:ring-teal-600/20 dark:border-stone-700 dark:bg-stone-950;
+    @apply w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 text-base text-ink outline-none transition
+      placeholder:text-muted/70 focus:border-accent focus:ring-4 focus:ring-accent/20;
   }
   .label {
-    @apply mb-1.5 block text-sm font-medium text-stone-700 dark:text-stone-300;
+    @apply mb-1.5 flex items-center text-sm font-semibold text-ink;
   }
   .btn-primary {
-    @apply rounded-lg bg-teal-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-teal-800
-      disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-accent-ink
+      shadow-[0_6px_20px_-8px_var(--accent)] transition hover:brightness-105 active:translate-y-px
+      disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none;
   }
   .btn-secondary {
-    @apply shrink-0 rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm font-medium transition
-      hover:bg-stone-100 dark:border-stone-700 dark:bg-stone-900 dark:hover:bg-stone-800;
+    @apply inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3.5 py-2 text-sm
+      font-semibold text-ink transition hover:border-accent disabled:opacity-40;
+  }
+  .chip-on {
+    @apply border-accent bg-accent text-accent-ink;
+  }
+  .chip-off {
+    @apply border-line bg-surface text-ink hover:border-accent;
+  }
+  .card {
+    @apply rounded-[22px] border border-line bg-surface p-4 sm:p-5;
+  }
+  .hint {
+    @apply text-xs text-muted;
   }
 }
