@@ -107,9 +107,9 @@ export async function buildAssets(
   const need = neededAssets(plan, lib);
   const made: AssetLibrary = { characters: {}, places: {}, props: {} };
   const failed: string[] = [];
-  for (let i = 0; i < need.length; i++) {
-    const n = need[i];
-    status(`Drawing ${n.kind} ${i + 1} of ${need.length}…`, i / Math.max(1, need.length));
+  let done = 0;
+  status(`Drawing ${need.length} new character${need.length === 1 ? "" : "s"} and place${need.length === 1 ? "" : "s"}…`, 0);
+  const one = async (n: NeededAsset) => {
     try {
       const r = await postJson<{ asset: unknown }>("/api/asset", key, { kind: n.kind, id: n.id, look: n.look }, signal);
       const v = validateAsset(r.asset);
@@ -121,8 +121,18 @@ export async function buildAssets(
     } catch (e) {
       if ((e as Error).name === "AbortError") throw e;
       failed.push(`${n.kind} "${n.id}"`);
+    } finally {
+      done++;
+      status(`Drawing new characters and places… ${done} of ${need.length} ready`, done / Math.max(1, need.length));
     }
-  }
+  };
+  // Three at a time: much faster than one by one, and stays inside the route's rate limit.
+  const queue = [...need];
+  await Promise.all(
+    Array.from({ length: Math.min(3, queue.length) }, async () => {
+      while (queue.length) await one(queue.shift()!);
+    }),
+  );
   return { made, failed };
 }
 

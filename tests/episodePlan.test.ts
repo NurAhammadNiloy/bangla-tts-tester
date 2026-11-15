@@ -63,7 +63,7 @@ describe("buildEpisodePrompt", () => {
     expect(p).toContain("scare_sting");
     expect(p).toMatch(/HORROR/);
     expect(p).toContain("পরের পর্ব দেখুন");
-    expect(p).toContain("পর্ব 1");
+    expect(p).toContain("পর্ব ১");
     expect(p).toMatch(/new = true/);
   });
   it("last part asks for the_end; previous cast and places are listed for reuse", () => {
@@ -209,7 +209,7 @@ describe("normalizeEpisode", () => {
     expect(plan.shots[0]).toMatchObject({ speaker: "mitu", place: "ward_night", bubble: true, hook: true, camera: { shot: "medium", move: "hold" } });
     expect(plan.end).toEqual({ type: "the_end", text: "শেষ" });
     expect(plan.episode).toBe(3);
-    expect(plan.title).toContain("পর্ব 3");
+    expect(plan.title).toContain("পর্ব ৩");
   });
 
   it("forces the end type from ctx even if the model chose the other one", () => {

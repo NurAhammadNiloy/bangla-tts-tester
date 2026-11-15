@@ -51,6 +51,9 @@ export const MAX_NARRATION_WORDS = 18;
 export const MAX_SHOTS = 120;
 
 export const NEXT_PART_TEXT = "পরের পর্ব দেখুন";
+const BN = "০১২৩৪৫৬৭৮৯";
+/** Western digits → Bangla digits. */
+export const bnNum = (v: number | string) => String(v).replace(/\d/g, (d) => BN[+d]);
 export const THE_END_TEXT = "শেষ";
 
 /* --------------------------------- schema -------------------------------- */
@@ -208,7 +211,8 @@ export function buildEpisodePrompt(ctx: EpisodeContext): string {
     "LINES",
     "- Keep the author's own Bangla sentences, in order, with light edits only. Do not invent plot or skip events.",
     `- One line per shot, 1.5–4 seconds of speech: dialogue at most ${MAX_DIALOGUE_WORDS} words, narration at most ${MAX_NARRATION_WORDS} words. Split long sentences into several shots.`,
-    "- Dialogue: speaker = the cast id, bubble = true. Narration: speaker = \"narrator\", bubble = false. First-person narration is allowed.",
+    "- Dialogue: speaker = the cast id, bubble = true. Narration: speaker = \"narrator\", bubble = false.",
+    "- FIRST-PERSON STORIES (\"আমি\"): the storyteller is a real character. Add them to the cast (voice = \"narrator\") and show them on screen in most narration shots: walking, looking, reacting, holding things. Never leave the \"আমি\" character invisible.",
     "- Keep voice tags like [sad] [whispers] [gasp] from the text; add a few where they help. Never two tags side by side.",
     "",
     "SHOW, THEN TELL",
@@ -227,6 +231,7 @@ export function buildEpisodePrompt(ctx: EpisodeContext): string {
     "CAST PER SHOT",
     "- actors = only who is visible in that shot, x from 0 (left) to 1 (right), facing each other in conversations.",
     "- A character who enters later in the story is never shown before entering.",
+    "- VARIETY: never more than 2 shots in a row with the same place AND the same camera.shot. Narration shots must still show something happening (a character doing the action the line describes, a prop, a screen, a new place) — not the same empty picture again.",
     "- face and action match the line (talk while speaking, phone_ear on calls, cry on crying, shock on a shock...). toX only for walk_to (else same as x); prop = a prop id held in hand or \"\".",
     "",
     "SOUND",
@@ -235,7 +240,7 @@ export function buildEpisodePrompt(ctx: EpisodeContext): string {
     "ASSETS",
     "- cast, places and props: if a library id fits, asset = that id and new = false.",
     "- Otherwise new = true, asset = a new snake_case id, and `look` = a precise English description: for people age, build, skin tone, hair, clothes with colours; for places the layout, era, time and key objects; for props the shape and colour.",
-    "- ids are short snake_case English (e.g. \"rina\", \"hospital_ward\").",
+    "- ids are short snake_case English (e.g. \"rina\", \"hospital_ward\"). cast[].name is the display name in Bangla script (e.g. \"রহিমা খালা\"), never English letters.",
     "- places[].label: a small Bangla tag shown on arrival (e.g. \"রাত ২টা • হাসপাতাল\") or \"\".",
     "",
     MOOD_NOTES[ctx.genre] ?? "",
@@ -246,7 +251,7 @@ export function buildEpisodePrompt(ctx: EpisodeContext): string {
       : `- Not the last part: end on the cliffhanger${ctx.hook ? ` (${ctx.hook})` : ""}; the last shot cuts at the peak; end = {type: "next_part", text: "${NEXT_PART_TEXT}"}.`,
     "",
     "META",
-    `- title: short emotional Bangla, "<hook phrase> | <series name> পর্ব ${n}". caption: 1–2 Bangla lines for Facebook. episode = ${n}. mood = "${ctx.genre}". format = "9:16".`,
+    `- title: short emotional Bangla (no emoji), "<hook phrase> | <series name> পর্ব ${bnNum(n)}". caption: 1–2 Bangla lines for Facebook. episode = ${n}. mood = "${ctx.genre}". format = "9:16".`,
     "",
     "Return ONLY the JSON.",
   ]
@@ -749,7 +754,8 @@ export function normalizeEpisode(input: R, ctx: EpisodeContext, warnings: string
 
   const series = s(ctx.series, 60) || s(o.series, 60) || "গল্প";
   const hookPhrase = s(ctx.hook, 60) || s(ctx.partTitle, 60);
-  const title = s(o.title, 140) || `${hookPhrase || series} | ${series} পর্ব ${episode}`;
+  const rawTitle = s(o.title, 140).replace(/\p{Extended_Pictographic}\uFE0F?/gu, "").replace(/\s{2,}/g, " ").trim();
+  const title = bnNum(rawTitle || `${hookPhrase || series} | ${series} পর্ব ${episode}`);
   const caption = s(o.caption, 300) || title;
   const rawEnd = rec(o.end);
   // Only keep the model's end text when it chose the right end type.

@@ -67,25 +67,21 @@ export function frameShot(
   if (!actors.length || size === "wide") return wide;
   const a = actors[0];
   const h = Math.max(120, a.feetY - a.headTop);
-  const byH = (vh: number, top: number, cx: number): View => {
+  // Size the view to show `vh` of the body, then place it so the FACE sits at `faceFrac` of the frame
+  // height (from the top). Anchoring on the face keeps hair and headroom in frame for any asset shape.
+  const byFace = (vh: number, faceFrac: number, cx: number): View => {
     let s = H / vh;
-    // keep at least ~0.5 h of width so a body fits
-    const minW = h * 0.42;
+    const minW = h * 0.42; // keep enough width that a body fits
     if (W / s < minW) s = W / minW;
     const realH = H / s;
-    return clampView({ s, cx, cy: top + realH / 2 }, placeSize, W, H);
+    return clampView({ s, cx, cy: a.faceY + realH * (0.5 - faceFrac) }, placeSize, W, H);
   };
   switch (size) {
-    case "medium": {
-      const vh = h * 1.18;
-      return byH(vh, a.headTop - vh * 0.1, a.x);
-    }
+    case "medium":
+      return byFace(h * 1.18, 0.2, a.x);
     case "close":
-    case "pov_hand": {
-      const vh = h * 0.5;
-      const v = byH(vh, a.headTop - vh * 0.12, a.x);
-      return v;
-    }
+    case "pov_hand":
+      return byFace(h * 0.5, 0.36, a.x);
     case "extreme_close": {
       const vh = h * 0.27;
       const s = H / vh;
@@ -102,9 +98,8 @@ export function frameShot(
     }
     case "over_shoulder": {
       const b = actors[1];
-      const vh = h * 0.72;
       const cx = b ? b.x + (a.x - b.x) * 0.7 : a.x;
-      return byH(vh, a.headTop - vh * 0.1, cx);
+      return byFace(h * 0.72, 0.28, cx);
     }
   }
   return wide;

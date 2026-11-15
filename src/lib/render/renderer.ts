@@ -195,7 +195,10 @@ export function drawBubble(
   highlight: boolean,
   anchor?: { x: number; y: number } | null,
 ) {
-  const centerY = anchor ? Math.min(0.42, Math.max(0.16, anchor.y / H - 0.13)) : 0.25;
+  // anchor = top of the speaker's head. Sit fully above it when there is room, otherwise
+  // drop below the face (over the body) so the bubble never covers a face.
+  const above = anchor ? anchor.y / H - 0.085 : 0.25;
+  const centerY = !anchor ? 0.25 : above >= 0.1 ? Math.min(0.42, above) : 0.62;
   const L = layoutCaption(cap.text, W, H, measurer(ctx), { centerY, sizeRatio: 0.058, maxWidthRatio: 0.76, maxLines: 3 });
   const r = L.fontSize * 0.7;
   ctx.fillStyle = "#fbfaf7";
@@ -206,17 +209,19 @@ export function drawBubble(
   ctx.stroke();
   // tail, pointing towards the speaker when we know where they are
   const tx = anchor ? Math.min(L.box.x + L.box.w - r * 1.5, Math.max(L.box.x + r * 1.5, anchor.x)) : W / 2;
-  const ty = L.box.y + L.box.h;
+  const up = !!anchor && anchor.y < L.box.y; // bubble sits below the speaker: tail points up
+  const ty = up ? L.box.y : L.box.y + L.box.h;
+  const dir = up ? -1 : 1;
   const tw = L.fontSize * 0.55;
   ctx.beginPath();
-  ctx.moveTo(tx - tw, ty - 1);
-  ctx.lineTo(tx, ty + tw * 1.1);
-  ctx.lineTo(tx + tw, ty - 1);
+  ctx.moveTo(tx - tw, ty - dir);
+  ctx.lineTo(tx, ty + dir * tw * 1.1);
+  ctx.lineTo(tx + tw, ty - dir);
   ctx.closePath();
   ctx.fill();
   ctx.beginPath();
   ctx.moveTo(tx - tw, ty);
-  ctx.lineTo(tx, ty + tw * 1.1);
+  ctx.lineTo(tx, ty + dir * tw * 1.1);
   ctx.lineTo(tx + tw, ty);
   ctx.stroke();
   drawWords(ctx, L, activeIndex(L, cap, t, highlight), { fill: "#1d1d26", hi: "#c47f00" });

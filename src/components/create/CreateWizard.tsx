@@ -161,7 +161,7 @@ export default function CreateWizard() {
           setStep("done");
         } else if (ep.plan) setStep("check");
         else setStep("look");
-      }
+      } else if (p.outline) setStep("look");
     })().catch(() => setError("Could not open that project."));
     return () => {
       cancelled = true;
