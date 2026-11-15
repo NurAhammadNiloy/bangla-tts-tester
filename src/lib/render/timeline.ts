@@ -139,15 +139,25 @@ export function wrapLines(text: string, maxWidth: number, measure: (s: string) =
   return lines;
 }
 
+export interface CaptionWord {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  /** Index across the whole caption, for highlighting. */
+  index: number;
+}
+
 export interface CaptionLayout {
   fontSize: number;
-  lines: { text: string; x: number; y: number; width: number }[];
+  words: CaptionWord[];
   box: { x: number; y: number; w: number; h: number };
 }
 
 /**
- * Lay out subtitle lines with explicit x positions (left-aligned drawing), so we
- * never depend on canvas textAlign, which iOS Safari renders wrongly for Bangla.
+ * Lay out subtitle words with explicit positions (left-aligned drawing, each line
+ * centred by measurement), so we never depend on canvas textAlign — which iOS
+ * Safari renders wrongly for Bangla — and can colour single words.
  * `measure(text, fontSize)` returns the text width at that size.
  */
 export function layoutCaption(
@@ -158,26 +168,53 @@ export function layoutCaption(
   opts: { centerY?: number; maxWidthRatio?: number; sizeRatio?: number; maxLines?: number } = {},
 ): CaptionLayout {
   const maxW = W * (opts.maxWidthRatio ?? 0.84);
-  let size = Math.round(W * (opts.sizeRatio ?? 0.054));
+  const maxLines = opts.maxLines ?? 3;
+  let size = Math.round(W * (opts.sizeRatio ?? 0.076));
   let lines: string[] = [];
-  // Shrink until every line fits and we have at most maxLines.
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 10; i++) {
     lines = wrapLines(text, maxW, (t) => measure(t, size));
     const tooWide = lines.some((l) => measure(l, size) > maxW);
-    if (!tooWide && lines.length <= (opts.maxLines ?? 3)) break;
+    if (!tooWide && lines.length <= maxLines) break;
     size = Math.max(18, Math.round(size * 0.9));
   }
-  lines = lines.slice(0, opts.maxLines ?? 3); // last resort, never overflow the frame
-  const lh = size * 1.4;
-  const pad = size * 0.45;
-  const widths = lines.map((l) => Math.min(maxW, measure(l, size)));
+  lines = lines.slice(0, maxLines); // last resort, never overflow the frame
+  const lh = size * 1.42;
+  const pad = size * 0.5;
+  const space = measure(" ", size) || size * 0.28;
   const blockH = lines.length * lh;
-  const boxW = Math.max(...widths, 0) + pad * 2;
-  let top = H * (opts.centerY ?? 0.86) - blockH / 2;
-  top = Math.min(top, H * 0.95 - blockH - pad); // keep clear of the bottom edge
-  return {
-    fontSize: size,
-    lines: lines.map((t, i) => ({ text: t, width: widths[i], x: (W - widths[i]) / 2, y: top + lh * (i + 0.5) })),
-    box: { x: (W - boxW) / 2, y: top - pad, w: boxW, h: blockH + pad * 2 },
-  };
+  let top = H * (opts.centerY ?? 0.74) - blockH / 2;
+  top = Math.min(top, H * 0.95 - blockH - pad);
+  const words: CaptionWord[] = [];
+  let widest = 0;
+  let index = 0;
+  lines.forEach((line, li) => {
+    const parts = line.split(/\s+/).filter(Boolean);
+    const widths = parts.map((p) => measure(p, size));
+    const lineW = Math.min(maxW, widths.reduce((a, b) => a + b, 0) + space * Math.max(0, parts.length - 1));
+    widest = Math.max(widest, lineW);
+    let x = (W - lineW) / 2;
+    const y = top + lh * (li + 0.5);
+    parts.forEach((p, k) => {
+      words.push({ text: p, x, y, width: widths[k], index: index++ });
+      x += widths[k] + space;
+    });
+  });
+  const boxW = widest + pad * 2;
+  return { fontSize: size, words, box: { x: (W - boxW) / 2, y: top - pad, w: boxW, h: blockH + pad * 2 } };
+}
+
+/**
+ * Which word is being spoken, estimated from progress through the caption and
+ * word length (until real word timestamps are added). Returns -1 outside it.
+ */
+export function activeWordIndex(words: string[], progress: number): number {
+  if (!words.length || progress < 0 || progress >= 1) return -1;
+  const w = words.map((x) => Math.max(1, [...x].length));
+  const total = w.reduce((a, b) => a + b, 0);
+  let acc = 0;
+  for (let i = 0; i < w.length; i++) {
+    acc += w[i];
+    if (progress < acc / total) return i;
+  }
+  return w.length - 1;
 }

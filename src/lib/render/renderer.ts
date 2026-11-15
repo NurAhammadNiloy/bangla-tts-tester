@@ -11,6 +11,7 @@
 import {
   captionsFor,
   fitRate,
+  activeWordIndex,
   kenBurns,
   layoutCaption,
   slotAt,
@@ -34,6 +35,8 @@ export interface RenderOptions {
   height?: number;
   fps?: number;
   subtitles?: boolean;
+  /** Colour the word being spoken yellow (reel style). Default true. */
+  highlightWords?: boolean;
   onProgress?: (p: number) => void;
   signal?: AbortSignal;
 }
@@ -99,31 +102,39 @@ function drawCover(
   ctx.drawImage(src, x, y, dw, dh);
 }
 
-function drawCaption(ctx: CanvasRenderingContext2D, text: string, W: number, H: number) {
-  const measure = (t: string, size: number) => {
+const HIGHLIGHT = "#FFD43B";
+
+function drawCaption(ctx: CanvasRenderingContext2D, cap: Caption, t: number, W: number, H: number, highlight: boolean) {
+  const measure = (s: string, size: number) => {
     ctx.font = `700 ${size}px ${FONT}`;
-    const m = ctx.measureText(t).width;
+    const m = ctx.measureText(s).width;
     // Guard against engines that under-report complex-script widths.
-    const estimate = [...t].length * size * 0.5;
+    const estimate = [...s].length * size * 0.5;
     return m < estimate * 0.4 ? estimate : m;
   };
-  const L = layoutCaption(text, W, H, measure);
+  const L = layoutCaption(cap.text, W, H, measure);
+  const active = highlight
+    ? activeWordIndex(
+        L.words.map((w) => w.text),
+        (t - cap.start) / Math.max(0.01, cap.end - cap.start),
+      )
+    : -1;
   ctx.font = `700 ${L.fontSize}px ${FONT}`;
   ctx.direction = "ltr";
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.fillStyle = "rgba(20,14,10,0.72)";
   ctx.beginPath();
-  if (typeof ctx.roundRect === "function") ctx.roundRect(L.box.x, L.box.y, L.box.w, L.box.h, L.fontSize * 0.4);
+  if (typeof ctx.roundRect === "function") ctx.roundRect(L.box.x, L.box.y, L.box.w, L.box.h, L.fontSize * 0.45);
   else ctx.rect(L.box.x, L.box.y, L.box.w, L.box.h);
   ctx.fill();
   ctx.lineJoin = "round";
-  for (const ln of L.lines) {
-    ctx.lineWidth = L.fontSize * 0.14;
-    ctx.strokeStyle = "rgba(0,0,0,0.85)";
-    ctx.strokeText(ln.text, ln.x, ln.y);
-    ctx.fillStyle = "#fff";
-    ctx.fillText(ln.text, ln.x, ln.y);
+  for (const w of L.words) {
+    ctx.lineWidth = L.fontSize * 0.12;
+    ctx.strokeStyle = "rgba(0,0,0,0.8)";
+    ctx.strokeText(w.text, w.x, w.y);
+    ctx.fillStyle = w.index === active ? HIGHLIGHT : "#fff";
+    ctx.fillText(w.text, w.x, w.y);
   }
 }
 
@@ -247,7 +258,7 @@ export async function renderVideo(
           const cap = captions[slot.index].find(
             (c) => t >= c.start && t < c.end,
           );
-          if (cap) drawCaption(ctx, cap.text, W, H);
+          if (cap) drawCaption(ctx, cap, t, W, H, opts.highlightWords !== false);
         }
         opts.onProgress?.(Math.min(1, Math.max(0, t / total)));
         requestAnimationFrame(tick);

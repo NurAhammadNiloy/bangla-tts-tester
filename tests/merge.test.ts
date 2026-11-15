@@ -5,7 +5,7 @@ import { GET as videoGet } from "@/app/api/video/[id]/route";
 import { GET as videoContent } from "@/app/api/video/[id]/content/route";
 import { estimateVideoCost, listImageModels, listVideoModels, parseVideoPricing, pickClipDuration, type VideoModel } from "@/lib/openrouter/media";
 import { _resetRateLimit } from "@/lib/rateLimit";
-import { buildTimeline, captionsFor, chunkSentence, layoutCaption, cleanSubtitle, fitRate, kenBurns, slotAt, totalDuration, wrapLines } from "@/lib/render/timeline";
+import { activeWordIndex, buildTimeline, captionsFor, chunkSentence, layoutCaption, cleanSubtitle, fitRate, kenBurns, slotAt, totalDuration, wrapLines } from "@/lib/render/timeline";
 import { pickMimeType } from "@/lib/render/renderer";
 import { DEFAULT_SCENES } from "@/lib/mergeSample";
 import { allowedTags, sanitizeTags } from "@/lib/voiceDirector";
@@ -150,23 +150,30 @@ describe("caption layout (explicit centring for iOS)", () => {
   it("centres every line inside the frame and keeps it below the faces", () => {
     const text = "ছেলেটা মায়ের পা জড়িয়ে ধরে কেঁদে ফেলল।";
     const L = layoutCaption(text, 720, 1280, measure);
-    expect(L.lines.length).toBeGreaterThanOrEqual(1);
-    for (const ln of L.lines) {
-      expect(ln.x).toBeGreaterThanOrEqual(0);
-      expect(ln.x + ln.width).toBeLessThanOrEqual(720);
-      expect(ln.x + ln.width / 2).toBeCloseTo(360, 5);
+    for (const w of L.words) {
+      expect(w.x).toBeGreaterThanOrEqual(0);
+      expect(w.x + w.width).toBeLessThanOrEqual(720);
     }
+    // Each line is centred: first word's left gap equals last word's right gap.
+    const byLine = new Map<number, typeof L.words>();
+    for (const w of L.words) byLine.set(w.y, [...(byLine.get(w.y) ?? []), w]);
+    for (const ws of byLine.values()) {
+      const left = ws[0].x;
+      const right = 720 - (ws[ws.length - 1].x + ws[ws.length - 1].width);
+      expect(left).toBeCloseTo(right, 5);
+    }
+    expect(L.words.map((w) => w.text).join(" ")).toBe(text);
     expect(L.box.x).toBeGreaterThanOrEqual(0);
     expect(L.box.x + L.box.w).toBeLessThanOrEqual(720 + 1e-6);
-    expect(L.box.y).toBeGreaterThan(1280 * 0.7);
+    expect(L.box.y).toBeGreaterThan(1280 * 0.55); // lower part of the frame, faces stay clear
     expect(L.box.y + L.box.h).toBeLessThanOrEqual(1280 * 0.95 + 1e-6);
   });
   it("shrinks the font for very long text instead of overflowing", () => {
     const long = "আমি ".repeat(60).trim();
     const L = layoutCaption(long, 720, 1280, measure);
-    expect(L.lines.length).toBeLessThanOrEqual(3);
-    expect(L.fontSize).toBeLessThan(Math.round(720 * 0.054));
-    for (const ln of L.lines) expect(ln.width).toBeLessThanOrEqual(720 * 0.84 + 1e-6);
+    expect(new Set(L.words.map((w) => w.y)).size).toBeLessThanOrEqual(3);
+    expect(L.fontSize).toBeLessThan(Math.round(720 * 0.076));
+    expect(L.box.w).toBeLessThanOrEqual(720);
   });
 });
 
@@ -184,5 +191,17 @@ describe("chunkSentence", () => {
       "বারো বছর পর, এক বৃষ্টির রাতে,",
       "দরজায় কড়া নাড়ার শব্দ।",
     ]);
+  });
+});
+
+describe("active word highlight", () => {
+  it("moves through words by length-weighted progress", () => {
+    const words = ["কিন্তু", "সে", "বিরিয়ানিটা", "নিজের"];
+    expect(activeWordIndex(words, 0)).toBe(0);
+    expect(activeWordIndex(words, 0.3)).toBe(1);
+    expect(activeWordIndex(words, 0.5)).toBe(2);
+    expect(activeWordIndex(words, 0.99)).toBe(3);
+    expect(activeWordIndex(words, 1)).toBe(-1);
+    expect(activeWordIndex([], 0.5)).toBe(-1);
   });
 });

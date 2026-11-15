@@ -14,6 +14,17 @@ export interface ArtStyle {
 
 export const ART_STYLES: ArtStyle[] = [
   {
+    id: "minimal",
+    label: "Minimal reel",
+    emoji: "🙂",
+    prompt:
+      "Minimalist flat vector cartoon like a simple explainer animation: characters with large round heads, small dot eyes, " +
+      "tiny curved smile, simple short hair shapes, thin tube-like arms and legs, rectangular bodies, thick dark brown outlines, " +
+      "flat solid colors with no texture, warm orange, brown and cream palette, plain softly blurred background with shallow depth of field, " +
+      "simple props, white thought bubbles with clear icons when a character is thinking.",
+    goodFor: "Facebook reels, comedy, life stories",
+  },
+  {
     id: "flat",
     label: "Flat cartoon",
     emoji: "🟠",

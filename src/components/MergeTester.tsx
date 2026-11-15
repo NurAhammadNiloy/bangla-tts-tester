@@ -81,7 +81,7 @@ export default function MergeTester() {
   const [imageModel, setImageModel] = useState("");
   const [videoModel, setVideoModel] = useState("");
   const [videoRes, setVideoRes] = useState("");
-  const [artId, setArtId] = useState(ART_STYLES[0].id);
+  const [artId, setArtId] = useState("minimal");
   const [customArt, setCustomArt] = useState("");
   const [setting, setSetting] = useState(DEFAULT_SETTING);
   const [characters, setCharacters] = useState(DEFAULT_CHARACTERS);
