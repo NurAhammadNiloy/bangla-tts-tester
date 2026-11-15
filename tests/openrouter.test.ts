@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getGeneration, listSpeechModels, normalizeVoices, synthesize } from "@/lib/openrouter/client";
+import { chatComplete, getGeneration, listSpeechModels, normalizeVoices, pickHelperModel, synthesize } from "@/lib/openrouter/client";
 import { OpenRouterError } from "@/lib/openrouter/errors";
 import { audioResponse, errorResponse, FAKE_KEY, mockFetch } from "./helpers";
 
@@ -36,10 +36,17 @@ describe("synthesize", () => {
         ? errorResponse(400, "Only pcm is supported")
         : audioResponse([9, 9], "audio/pcm");
     });
-    const r = await synthesize({ ...base, model: "google/gemini-3.1-flash-tts-preview", format: "auto" });
+    const r = await synthesize({ ...base, model: "heygen/heygen-voice-1", format: "auto" });
     expect(calls.map((c) => c.body?.response_format)).toEqual(["mp3", "pcm"]);
     expect(r.format).toBe("pcm");
     expect(r.fellBackToPcm).toBe(true);
+  });
+
+  it("asks Gemini for pcm directly in auto mode (documented pcm-only)", async () => {
+    const { calls } = mockFetch(() => audioResponse([1, 2], "audio/pcm"));
+    const r = await synthesize({ ...base, model: "google/gemini-3.8-flash-tts", voice: "Kore", format: "auto" });
+    expect(calls.map((c) => c.body?.response_format)).toEqual(["pcm"]);
+    expect(r.format).toBe("pcm");
   });
 
   it("does not fall back in explicit mp3 mode or on non-400 errors", async () => {
@@ -128,5 +135,28 @@ describe("getGeneration", () => {
     });
     mockFetch(() => new Response("not found", { status: 404 }));
     await expect(getGeneration(FAKE_KEY, "gen-1")).resolves.toBeNull();
+  });
+});
+
+describe("helper model + chat", () => {
+  it("picks the newest Gemini flash-lite text model from the live list", () => {
+    const models = [
+      { id: "google/gemini-3.8-flash-tts", architecture: { output_modalities: ["audio"] } },
+      { id: "google/gemini-2.5-flash-lite", architecture: { output_modalities: ["text"] } },
+      { id: "google/gemini-3.1-flash-lite", architecture: { output_modalities: ["text"] } },
+      { id: "google/gemini-3.1-flash-image", architecture: { output_modalities: ["image", "text"] } },
+      { id: "openai/gpt-5-mini", architecture: { output_modalities: ["text"] } },
+    ];
+    expect(pickHelperModel(models)).toBe("google/gemini-3.1-flash-lite");
+    expect(pickHelperModel([{ id: "openai/gpt-5-mini" }])).toBe("openai/gpt-5-mini");
+    expect(pickHelperModel([{ id: "x/y" }])).toBeNull();
+  });
+
+  it("chatComplete posts messages and returns content", async () => {
+    const { calls } = mockFetch(() => Response.json({ id: "gen-c", choices: [{ message: { content: "hi" } }] }));
+    const r = await chatComplete({ apiKey: FAKE_KEY, model: "a/b", system: "s", user: "u" });
+    expect(calls[0].url).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(calls[0].body?.messages).toEqual([{ role: "system", content: "s" }, { role: "user", content: "u" }]);
+    expect(r).toEqual({ content: "hi", generationId: "gen-c" });
   });
 });

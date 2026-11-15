@@ -1,6 +1,14 @@
 export const DEFAULT_BENGALI_TEXT =
   "আসসালামু আলাইকুম। আমার নাম জারভিস। আমি একজন বাংলা এআই সহকারী। আজ আমরা বাংলা ভয়েস জেনারেশন পরীক্ষা করছি।";
 
+/** Short original emotional story with Gemini-style tags, for testing expressiveness. */
+export const SAMPLE_STORY =
+  "[sad] মা প্রতিদিন সন্ধ্যায় দরজার পাশে বসে থাকতেন, [short pause] ছেলের অপেক্ষায়। " +
+  "[hope] আজ হয়তো সে ফিরবে, এই ভেবে চা বানিয়ে রাখতেন দুই কাপ। " +
+  "[long pause] বারো বছর পর, এক বৃষ্টির রাতে, [gasp] দরজায় কড়া নাড়ার শব্দ। " +
+  "[whispers] মা কাঁপা গলায় বললেন, ...খোকা? তুই এসেছিস? " +
+  "[relief] ছেলেটা মায়ের পা জড়িয়ে ধরে কেঁদে ফেলল।";
+
 /**
  * Model families whose *provider* documentation explicitly lists Bengali.
  * This only labels models; the model list itself always comes live from

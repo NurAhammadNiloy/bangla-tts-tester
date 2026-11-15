@@ -1,4 +1,5 @@
 import { isBengaliDocumented } from "@/lib/bengali";
+import { separateAdjacentTags, tagFamilyFor } from "@/lib/voiceDirector";
 import { errorFromResponse, OpenRouterError } from "./errors";
 import type {
   GenerationStats,
@@ -103,7 +104,8 @@ export interface SynthesizeParams {
 }
 
 function buildBody(p: SynthesizeParams, format: UpstreamAudioFormat): SpeechRequest {
-  const body: SpeechRequest = { model: p.model, input: p.input, response_format: format };
+  const input = tagFamilyFor(p.model) === "gemini" ? separateAdjacentTags(p.input) : p.input;
+  const body: SpeechRequest = { model: p.model, input, response_format: format };
   if (p.voice) body.voice = p.voice;
   if (p.instructions) body.instructions = p.instructions;
   if (p.elevenLabsLanguageCode && p.model.startsWith("elevenlabs/")) {
@@ -161,7 +163,9 @@ async function speechOnce(
  */
 export async function synthesize(p: SynthesizeParams, opts: ClientOptions = {}): Promise<SpeechResult> {
   const started = performance.now();
-  const first: UpstreamAudioFormat = p.format === "pcm" ? "pcm" : "mp3";
+  // Gemini TTS is documented as pcm-only, so skip the doomed mp3 attempt in auto mode.
+  const pcmOnly = /^google\/gemini-/.test(p.model);
+  const first: UpstreamAudioFormat = p.format === "pcm" || (p.format === "auto" && pcmOnly) ? "pcm" : "mp3";
   try {
     const r = await speechOnce(p, first, opts);
     return { ...r, elapsedMs: Math.round(performance.now() - started), fellBackToPcm: false };
@@ -206,4 +210,73 @@ export async function getGeneration(
     latencyMs: num(d.latency),
     generationTimeMs: num(d.generation_time),
   };
+}
+
+/* ---------------------------- Chat (LLM) --------------------------- */
+
+interface RawTextModel {
+  id: string;
+  architecture?: { input_modalities?: string[]; output_modalities?: string[] };
+  pricing?: Record<string, unknown>;
+}
+
+/**
+ * Pick a cheap, fast text model for small helper jobs (auto-tagging), from the
+ * LIVE model list so no model ID is hard-coded. Preference order by pattern.
+ */
+export const HELPER_MODEL_PREFERENCES: RegExp[] = [
+  /^google\/gemini-[\d.]+-flash-lite(-preview)?$/,
+  /^google\/gemini-[\d.]+-flash(-preview)?$/,
+  /^openai\/gpt-[\d.]+-mini$/,
+];
+
+export function pickHelperModel(models: RawTextModel[]): string | null {
+  const textOnly = models.filter((m) => {
+    const out = m.architecture?.output_modalities ?? ["text"];
+    return out.length === 1 && out[0] === "text" && !/tts|image|audio|embed/i.test(m.id);
+  });
+  for (const re of HELPER_MODEL_PREFERENCES) {
+    const hits = textOnly.filter((m) => re.test(m.id)).map((m) => m.id).sort().reverse(); // newest version first
+    if (hits.length) return hits[0];
+  }
+  return null;
+}
+
+export async function listTextModels(opts: ClientOptions = {}): Promise<RawTextModel[]> {
+  const f = opts.fetchImpl ?? fetch;
+  const res = await f(`${baseUrl()}/models`, {
+    headers: { Accept: "application/json", ...APP_HEADERS },
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
+  });
+  if (!res.ok) throw await errorFromResponse(res);
+  const json = (await res.json()) as { data?: RawTextModel[] };
+  return (json.data ?? []).filter((m) => typeof m?.id === "string");
+}
+
+export async function chatComplete(
+  p: { apiKey: string; model: string; system: string; user: string; temperature?: number; maxTokens?: number },
+  opts: ClientOptions = {},
+): Promise<{ content: string; generationId: string | null }> {
+  const f = opts.fetchImpl ?? fetch;
+  const res = await f(`${baseUrl()}/chat/completions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${p.apiKey}`, "Content-Type": "application/json", ...APP_HEADERS },
+    body: JSON.stringify({
+      model: p.model,
+      temperature: p.temperature ?? 0.2,
+      max_tokens: p.maxTokens ?? 4000,
+      messages: [
+        { role: "system", content: p.system },
+        { role: "user", content: p.user },
+      ],
+    }),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 90_000),
+  });
+  if (!res.ok) throw await errorFromResponse(res, p.apiKey);
+  const json = (await res.json()) as { id?: string; choices?: { message?: { content?: unknown } }[] };
+  const content = json.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || !content.trim()) {
+    throw new OpenRouterError(502, "The helper model returned no text.");
+  }
+  return { content, generationId: json.id ?? null };
 }

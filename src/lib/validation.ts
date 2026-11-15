@@ -1,4 +1,5 @@
 import type { RequestedFormat } from "@/lib/openrouter/types";
+import { GEMINI_MAX_BYTES, tagFamilyFor, utf8Bytes } from "@/lib/voiceDirector";
 
 /** Eleven v3's per-request limit; the lowest of the Bengali-capable models. */
 export const MAX_INPUT_CHARS = 5000;
@@ -40,6 +41,12 @@ export function validateTtsInput(body: unknown): Result<TtsInput> {
   if ([...text].length > MAX_INPUT_CHARS) {
     return { ok: false, error: `Text is too long (max ${MAX_INPUT_CHARS} characters for this tester).` };
   }
+  if (tagFamilyFor(model) === "gemini" && utf8Bytes(text) > GEMINI_MAX_BYTES) {
+    return {
+      ok: false,
+      error: `Gemini TTS accepts up to ${GEMINI_MAX_BYTES} bytes of text (about 1,300 Bengali characters). Shorten the text or split it.`,
+    };
+  }
 
   let voice: string | undefined;
   if (typeof b.voice === "string" && b.voice.trim()) {
@@ -51,7 +58,7 @@ export function validateTtsInput(body: unknown): Result<TtsInput> {
 
   let instructions: string | undefined;
   if (typeof b.instructions === "string" && b.instructions.trim()) {
-    instructions = b.instructions.trim().slice(0, 1000);
+    instructions = b.instructions.trim().slice(0, 3000);
   }
 
   let elevenLabsLanguageCode: string | undefined;

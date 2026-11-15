@@ -1,9 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { bengaliRatio, codePointLength, DEFAULT_BENGALI_TEXT } from "@/lib/bengali";
+import { bengaliRatio, codePointLength, DEFAULT_BENGALI_TEXT, SAMPLE_STORY } from "@/lib/bengali";
 import type { GenerationStats, RequestedFormat, SpeechModel } from "@/lib/openrouter/types";
 import { MAX_INPUT_CHARS } from "@/lib/validation";
+import {
+  countTags,
+  GEMINI_MAX_BYTES,
+  insertTag,
+  STYLE_PRESETS,
+  tagFamilyFor,
+  tagsFor,
+  utf8Bytes,
+} from "@/lib/voiceDirector";
 import { downloadText, formatBytes, formatUsd, toCsv, type TestRecord } from "@/lib/report";
 
 type Status =
@@ -30,6 +39,20 @@ interface Generated {
 
 const CUSTOM_VOICE = "__custom__";
 
+/** Best Bangla option first: newest Gemini Flash TTS (bn-BD, director's notes + tags), then ElevenLabs v3. */
+const DEFAULT_MODEL_PREFERENCES = [
+  /^google\/gemini-[\d.]+-flash-tts$/,
+  /^google\/gemini-[\d.]+-flash-tts-preview$/,
+  /^elevenlabs\/eleven-v3$/,
+];
+function pickDefaultModel(list: SpeechModel[]): string {
+  for (const re of DEFAULT_MODEL_PREFERENCES) {
+    const hits = list.filter((m) => re.test(m.id)).map((m) => m.id).sort().reverse();
+    if (hits.length) return hits[0];
+  }
+  return list[0]?.id ?? "";
+}
+
 async function requestModels(): Promise<SpeechModel[]> {
   const res = await fetch("/api/models");
   const json = await res.json().catch(() => ({}));
@@ -52,7 +75,12 @@ export default function TtsTester() {
 
   const [text, setText] = useState(DEFAULT_BENGALI_TEXT);
   const [format, setFormat] = useState<RequestedFormat>("auto");
-  const [instructions, setInstructions] = useState("");
+  const [instructions, setInstructions] = useState(STYLE_PRESETS[0].instructions);
+  const [presetId, setPresetId] = useState(STYLE_PRESETS[0].id);
+  const [showNote, setShowNote] = useState(false);
+  const [tagging, setTagging] = useState(false);
+  const [preTagText, setPreTagText] = useState<string | null>(null);
+  const textRef = useRef<HTMLTextAreaElement | null>(null);
   const [forceBn, setForceBn] = useState(false);
   const [sampleRate, setSampleRate] = useState(24000);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -69,7 +97,7 @@ export default function TtsTester() {
     setModels(list);
     setModelsError(null);
     setModelsLoading(false);
-    setModelId((cur) => (cur && list.some((m) => m.id === cur) ? cur : list[0]?.id ?? ""));
+    setModelId((cur) => (cur && list.some((m) => m.id === cur) ? cur : pickDefaultModel(list)));
   }, []);
   const applyModelsError = useCallback((e: unknown) => {
     setModelsError(e instanceof Error ? e.message : "Failed to load models.");
@@ -92,8 +120,16 @@ export default function TtsTester() {
   const voiceChoice =
     rawVoiceChoice && (rawVoiceChoice === CUSTOM_VOICE || model?.voices.includes(rawVoiceChoice))
       ? rawVoiceChoice
-      : (model?.voices[0] ?? CUSTOM_VOICE);
+      : (presetVoiceFor(model) ?? model?.voices[0] ?? CUSTOM_VOICE);
   const setVoiceChoice = setRawVoiceChoice;
+
+  function presetVoiceFor(m: SpeechModel | undefined): string | undefined {
+    const p = STYLE_PRESETS.find((x) => x.id === presetId);
+    if (!m || !p) return undefined;
+    const fam = tagFamilyFor(m.id);
+    const v = fam === "gemini" ? p.geminiVoice : fam === "elevenlabs" ? p.elevenVoice : undefined;
+    return v && m.voices.includes(v) ? v : undefined;
+  }
 
   // Free the previous audio blob URL.
   useEffect(() => {
@@ -108,6 +144,57 @@ export default function TtsTester() {
   const isEleven = modelId.startsWith("elevenlabs/");
   const supportsInstructions = /^(openai\/|google\/|fishaudio\/|fish-audio\/)/.test(modelId);
   const busy = status.kind === "loading";
+  const tagFamily = tagFamilyFor(modelId);
+  const bytes = utf8Bytes(text.trim());
+  const overLimit = tagFamily === "gemini" ? bytes > GEMINI_MAX_BYTES : chars > MAX_INPUT_CHARS;
+
+  function applyPreset(id: string) {
+    const p = STYLE_PRESETS.find((x) => x.id === id);
+    if (!p) return;
+    setPresetId(id);
+    setInstructions(p.instructions);
+    const wanted = tagFamily === "gemini" ? p.geminiVoice : tagFamily === "elevenlabs" ? p.elevenVoice : null;
+    if (wanted && model?.voices.includes(wanted)) setVoiceChoice(wanted);
+  }
+
+  function addTag(tag: string) {
+    const el = textRef.current;
+    const cursor = el ? el.selectionStart : text.length;
+    const r = insertTag(text, cursor, tag);
+    setText(r.text);
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(r.cursor, r.cursor);
+    });
+  }
+
+  async function autoTag() {
+    if (!apiKey.trim()) return setStatus({ kind: "error", message: "Enter your OpenRouter API key first." });
+    setTagging(true);
+    setStatus({ kind: "loading", message: "AI is reading the story and adding emotion tags…" });
+    try {
+      const res = await fetch("/api/autotag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-openrouter-key": apiKey.trim() },
+        body: JSON.stringify({ text, ttsModel: modelId, presetId }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `Auto-tag failed (HTTP ${res.status}).`);
+      setPreTagText(text);
+      setText(json.text);
+      setStatus({ kind: "success", message: `Added ${json.tags} tag(s) using ${json.helperModel}. Check them, then Generate Voice.` });
+    } catch (e) {
+      setStatus({ kind: "error", message: e instanceof Error ? e.message : "Auto-tag failed." });
+    } finally {
+      setTagging(false);
+    }
+  }
+
+  function undoTags() {
+    if (preTagText !== null) setText(preTagText);
+    setPreTagText(null);
+  }
 
   const pollCost = useCallback(async (generationId: string, key: string) => {
     const delays = [1000, 2000, 3000, 5000, 8000];
@@ -131,13 +218,13 @@ export default function TtsTester() {
       }
     }
     setResult((r) => (r && r.generationId === generationId && r.costState !== "done" ? { ...r, costState: "unavailable" } : r));
-  }, []);
+  }, [setResult]);
 
   async function generate() {
     if (!apiKey.trim()) return setStatus({ kind: "error", message: "Enter your OpenRouter API key first." });
     if (!modelId) return setStatus({ kind: "error", message: "Choose a model." });
     if (!chars) return setStatus({ kind: "error", message: "Enter some Bengali text." });
-    if (chars > MAX_INPUT_CHARS) return setStatus({ kind: "error", message: `Keep the text under ${MAX_INPUT_CHARS} characters.` });
+    if (overLimit) return setStatus({ kind: "error", message: tagFamily === "gemini" ? "Text is over Gemini's 4,000-byte limit. Shorten it." : `Keep the text under ${MAX_INPUT_CHARS} characters.` });
 
     abortRef.current?.abort();
     const ac = new AbortController();
@@ -399,17 +486,6 @@ export default function TtsTester() {
                 ))}
               </select>
             </label>
-            {supportsInstructions && (
-              <label className="block sm:col-span-2">
-                <span className="label">Delivery instructions (this model supports them)</span>
-                <input
-                  value={instructions}
-                  onChange={(e) => setInstructions(e.target.value)}
-                  placeholder="e.g. Speak in warm, natural Bangladeshi Bengali, calm storytelling pace"
-                  className="input"
-                />
-              </label>
-            )}
             {isEleven && (
               <label className="flex items-start gap-2 text-sm sm:col-span-2">
                 <input type="checkbox" checked={forceBn} onChange={(e) => setForceBn(e.target.checked)} className="mt-1" />
@@ -423,26 +499,125 @@ export default function TtsTester() {
         )}
       </Section>
 
-      {/* 3. Text */}
-      <Section step="3" title="Bengali text">
+      {/* 3. Story style */}
+      <Section step="3" title="Story style">
+        <p className="mb-3 text-sm text-stone-600 dark:text-stone-400">
+          Pick the mood. This sets a director&apos;s note (Bangladeshi accent, character, scene) and a matching voice.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {STYLE_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => applyPreset(p.id)}
+              aria-pressed={presetId === p.id}
+              className={`rounded-full border px-3.5 py-2 text-sm font-medium transition ${
+                presetId === p.id
+                  ? "border-teal-700 bg-teal-700 text-white"
+                  : "border-stone-300 hover:border-teal-600 dark:border-stone-700"
+              }`}
+            >
+              {p.emoji} {p.label}
+            </button>
+          ))}
+        </div>
+        {supportsInstructions ? (
+          <details className="mt-4" open={showNote} onToggle={(e) => setShowNote(e.currentTarget.open)}>
+            <summary className="cursor-pointer text-sm font-medium text-teal-700 dark:text-teal-400">
+              Director&apos;s note {instructions ? "(set)" : "(empty)"}: edit how it should sound
+            </summary>
+            <textarea
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              rows={6}
+              placeholder="Describe the narrator, the scene, the accent and the emotion…"
+              className="input mt-2 text-sm"
+            />
+            <p className="mt-1 text-xs text-stone-500">
+              Write in English. Avoid words like &quot;quiet&quot;, &quot;flat&quot; or &quot;careful&quot;: they make the voice dull.
+            </p>
+          </details>
+        ) : (
+          <p className="mt-3 text-xs text-stone-500">
+            {tagFamily === "elevenlabs"
+              ? "ElevenLabs ignores director's notes, so emotion comes from the tags in your text (step 4). For the strongest emotion in Bangla, try a Gemini TTS model."
+              : "This model doesn't support director's notes or emotion tags. For emotional Bangla, choose a Gemini TTS model."}
+          </p>
+        )}
+      </Section>
+
+      {/* 4. Text */}
+      <Section step="4" title="Bengali text">
         <textarea
+          ref={textRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          rows={5}
+          rows={6}
           lang="bn"
           className="input bangla text-lg leading-relaxed"
         />
         <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs text-stone-500">
-          <span className={chars > MAX_INPUT_CHARS ? "font-semibold text-red-600" : ""}>
-            {chars.toLocaleString()} / {MAX_INPUT_CHARS.toLocaleString()} characters
+          <span className={overLimit ? "font-semibold text-red-600" : ""}>
+            {tagFamily === "gemini"
+              ? `${bytes.toLocaleString()} / ${GEMINI_MAX_BYTES.toLocaleString()} bytes (Gemini limit ≈ 1,300 Bengali letters)`
+              : `${chars.toLocaleString()} / ${MAX_INPUT_CHARS.toLocaleString()} characters`}
           </span>
           {chars > 0 && ratio < 0.6 && (
             <span className="text-amber-700 dark:text-amber-400">Text is mostly non-Bengali script.</span>
           )}
-          <button onClick={() => setText(DEFAULT_BENGALI_TEXT)} className="underline">
-            Reset to default test text
-          </button>
+          <span className="flex gap-3">
+            <button onClick={() => setText(SAMPLE_STORY)} className="underline">
+              Emotional sample
+            </button>
+            <button onClick={() => setText(DEFAULT_BENGALI_TEXT)} className="underline">
+              Reset text
+            </button>
+          </span>
         </div>
+
+        {tagFamily !== "none" && (
+          <div className="mt-4 border-t border-stone-200 pt-4 dark:border-stone-800">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm font-semibold">Emotion tags</span>
+              <button
+                type="button"
+                onClick={autoTag}
+                disabled={tagging || !chars}
+                className="rounded-lg bg-stone-900 px-3 py-2 text-sm font-semibold text-white hover:bg-stone-700 disabled:opacity-50 dark:bg-stone-100 dark:text-stone-900"
+              >
+                {tagging ? "Adding tags…" : "✨ Auto-add tags with AI"}
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-stone-500">
+              Tap where the feeling changes in the text, then tap a tag. Tags stay in English, even in a Bangla story.
+              {countTags(text) > 0 && ` ${countTags(text)} tag(s) in text.`}
+            </p>
+            {(["emotion", "delivery"] as const).map((group) => (
+              <div key={group} className="mt-2 flex flex-wrap gap-1.5">
+                {tagsFor(tagFamily)[group].map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => addTag(t)}
+                    className={`rounded-md border px-2 py-1 font-mono text-xs transition hover:border-teal-600 ${
+                      group === "emotion"
+                        ? "border-amber-300 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30"
+                        : "border-sky-300 bg-sky-50 dark:border-sky-900 dark:bg-sky-950/30"
+                    }`}
+                  >
+                    [{t}]
+                  </button>
+                ))}
+              </div>
+            ))}
+            {preTagText !== null && (
+              <button type="button" onClick={undoTags} className="mt-2 text-xs underline">
+                Undo auto-tags
+              </button>
+            )}
+          </div>
+        )}
       </Section>
 
       {/* Generate */}
@@ -478,7 +653,7 @@ export default function TtsTester() {
 
       {/* 4. Result */}
       {result && (
-        <Section step="4" title="Result">
+        <Section step="5" title="Result">
           <audio
             key={result.url}
             controls
@@ -547,7 +722,7 @@ export default function TtsTester() {
 
       {/* 5. Log */}
       {log.length > 0 && (
-        <Section step="5" title={`Results log (${log.length})`}>
+        <Section step="6" title={`Results log (${log.length})`}>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="text-stone-500">
