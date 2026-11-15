@@ -85,7 +85,7 @@ export function pickMimeType(
   );
 }
 
-const FONT =
+export const FONT =
   '"Noto Sans Bengali", "Hind Siliguri", "Kohinoor Bangla", "Bangla Sangam MN", "Nirmala UI", "Vrinda", sans-serif';
 
 function drawCover(
@@ -110,7 +110,7 @@ function drawCover(
 const HIGHLIGHT = "#FFD43B";
 export type CaptionStyle = "box" | "clean" | "headline";
 
-function measurer(ctx: CanvasRenderingContext2D) {
+export function measurer(ctx: CanvasRenderingContext2D) {
   return (t: string, size: number) => {
     ctx.font = `700 ${size}px ${FONT}`;
     const m = ctx.measureText(t).width;
@@ -129,7 +129,7 @@ function activeIndex(L: ReturnType<typeof layoutCaption>, cap: Caption, t: numbe
     : -1;
 }
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+export function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   if (typeof ctx.roundRect === "function") ctx.roundRect(x, y, w, h, r);
   else ctx.rect(x, y, w, h);
@@ -163,7 +163,7 @@ function drawWords(
   ctx.shadowBlur = 0;
 }
 
-function drawCaption(ctx: CanvasRenderingContext2D, cap: Caption, t: number, W: number, H: number, highlight: boolean, style: CaptionStyle) {
+export function drawCaption(ctx: CanvasRenderingContext2D, cap: Caption, t: number, W: number, H: number, highlight: boolean, style: CaptionStyle) {
   const m = measurer(ctx);
   if (style === "headline") {
     const L = layoutCaption(cap.text, W, H, m, { centerY: 0.2, sizeRatio: 0.088, maxWidthRatio: 0.86, maxLines: 3 });
@@ -182,9 +182,21 @@ function drawCaption(ctx: CanvasRenderingContext2D, cap: Caption, t: number, W: 
   drawWords(ctx, L, activeIndex(L, cap, t, highlight), { fill: "#fff", hi: HIGHLIGHT, stroke: "rgba(0,0,0,0.8)" });
 }
 
-/** White speech bubble near the top, for lines a character says aloud. */
-function drawBubble(ctx: CanvasRenderingContext2D, cap: Caption, t: number, W: number, H: number, highlight: boolean) {
-  const L = layoutCaption(cap.text, W, H, measurer(ctx), { centerY: 0.25, sizeRatio: 0.058, maxWidthRatio: 0.76, maxLines: 3 });
+/**
+ * White speech bubble for lines a character says aloud. With an anchor (the
+ * speaker's head on screen) the tail points at them; otherwise it sits near the top.
+ */
+export function drawBubble(
+  ctx: CanvasRenderingContext2D,
+  cap: Caption,
+  t: number,
+  W: number,
+  H: number,
+  highlight: boolean,
+  anchor?: { x: number; y: number } | null,
+) {
+  const centerY = anchor ? Math.min(0.42, Math.max(0.16, anchor.y / H - 0.13)) : 0.25;
+  const L = layoutCaption(cap.text, W, H, measurer(ctx), { centerY, sizeRatio: 0.058, maxWidthRatio: 0.76, maxLines: 3 });
   const r = L.fontSize * 0.7;
   ctx.fillStyle = "#fbfaf7";
   ctx.strokeStyle = "#2a2a35";
@@ -192,8 +204,8 @@ function drawBubble(ctx: CanvasRenderingContext2D, cap: Caption, t: number, W: n
   roundRect(ctx, L.box.x, L.box.y, L.box.w, L.box.h, r);
   ctx.fill();
   ctx.stroke();
-  // tail
-  const tx = W / 2;
+  // tail, pointing towards the speaker when we know where they are
+  const tx = anchor ? Math.min(L.box.x + L.box.w - r * 1.5, Math.max(L.box.x + r * 1.5, anchor.x)) : W / 2;
   const ty = L.box.y + L.box.h;
   const tw = L.fontSize * 0.55;
   ctx.beginPath();
@@ -211,7 +223,7 @@ function drawBubble(ctx: CanvasRenderingContext2D, cap: Caption, t: number, W: n
 }
 
 /** Small pill at the top for time/place jumps, e.g. "৩ মাস পর • বৃষ্টির দুপুর". */
-function drawTitleTag(ctx: CanvasRenderingContext2D, text: string, W: number, H: number, alpha: number) {
+export function drawTitleTag(ctx: CanvasRenderingContext2D, text: string, W: number, H: number, alpha: number) {
   const size = Math.round(W * 0.042);
   ctx.save();
   ctx.globalAlpha = alpha;
