@@ -38,6 +38,8 @@ export interface Part {
   /** Draw order, low first. */
   z: number;
   shapes: Shape[];
+  /** Optional (added v2-puppet): hand / foot end point in asset coordinates; held props sit here. Estimated from the shapes when missing. */
+  tip?: [number, number];
 }
 
 /**
@@ -87,6 +89,8 @@ export interface PropAsset {
   /** Point that sits in a hand or on the floor. */
   anchor: [number, number];
   shapes: Shape[];
+  /** Optional (added v2-puppet): y of the seat / mattress top for furniture actors can sit or lie on. */
+  seatY?: number;
 }
 
 export type Asset = CharacterAsset | PlaceAsset | PropAsset;
@@ -230,3 +234,15 @@ export interface ShotFrame {
 }
 
 export type ShotDrawer = (ctx: CanvasRenderingContext2D, W: number, H: number, f: ShotFrame) => void;
+
+/**
+ * Added v2-puppet: one camera "beat" of a shot. Long lines are split into 2–3
+ * beats of the same moment with different camera sizes (see splitLongShots).
+ * start/end are seconds relative to the shot start.
+ */
+export interface RenderBeat {
+  shotIndex: number;
+  start: number;
+  end: number;
+  cameraOverride?: Shot["camera"];
+}
