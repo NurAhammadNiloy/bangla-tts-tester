@@ -9,7 +9,7 @@ import {
 } from "@/lib/episodePlan";
 import { askJson, cachedPlannerModel, JsonReplyError } from "@/lib/openrouter/askJson";
 import { OpenRouterError } from "@/lib/openrouter/errors";
-import { GENRES, type Genre } from "@/lib/storyPlan";
+import { GENRES, MAX_STORY_CHARS, type Genre } from "@/lib/storyPlan";
 import type { EpisodePlan } from "@/lib/puppet/types";
 
 export const maxDuration = 300;
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   if (!b || typeof b !== "object" || Array.isArray(b)) return Response.json({ error: "Invalid JSON body." }, { status: 400 });
   const s = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
-  const text = s(b.text, 12_000);
+  const text = s(b.text, MAX_STORY_CHARS);
   if (!text) return Response.json({ error: "This part has no text." }, { status: 400 });
   const genre = (Object.keys(GENRES).includes(b.genre as string) ? b.genre : "emotional") as Genre;
   const partIndex = Math.max(0, Math.min(99, Math.floor(Number(b.partIndex) || 0)));
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     isLast: typeof b.isLast === "boolean" ? b.isLast : partIndex + 1 >= partsTotal,
     characters: s(b.characters, 2000),
     setting: s(b.setting, 400),
-    librarySummary: s(b.librarySummary, 12_000),
+    librarySummary: s(b.librarySummary, 60_000),
     previousCast: parsePreviousCast(b.previousCast),
     previousPlaces: parsePreviousPlaces(b.previousPlaces, genre),
     narrator: b.narrator === "male" ? "male" : "female",

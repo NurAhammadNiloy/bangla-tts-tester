@@ -47,11 +47,11 @@ describe("story plan helpers", () => {
     expect(plan.parts.at(-1)!.to).toBe(10);
   });
 
-  it("never lets a part go over 6 minutes", () => {
+  it("has no hard part-length cap: keeps the editor's long part as one part", () => {
     const s = long(400);
     const plan = normalizeOutline({ parts: [{ title: "all", firstSentence: 1 }] }, s);
-    expect(plan.parts.length).toBeGreaterThan(1);
-    for (const p of plan.parts) expect(partSeconds(plan, p)).toBeLessThanOrEqual(MAX_PART_SECONDS);
+    expect(plan.parts).toHaveLength(1);
+    expect(partSeconds(plan, plan.parts[0])).toBeLessThanOrEqual(MAX_PART_SECONDS);
     expect(plan.parts.at(-1)!.to).toBe(400);
   });
 

@@ -1065,7 +1065,7 @@ export default function MergeTester() {
               Your story (Bangla)
               <Info title="Paste a whole story">
                 Paste the full story exactly as written, of any length. The Story Editor AI reads all of it, works out the type of
-                story, and cuts it into parts (each 6 minutes at most) that end at a moment of curiosity, so viewers want the next
+                story, and cuts it into parts that end at a moment of curiosity, so viewers want the next
                 part. Your own words are kept.
               </Info>
             </label>
@@ -1087,7 +1087,7 @@ export default function MergeTester() {
                   Length of each part
                   <Info title="Length of each part">
                     “Let the editor decide” is best: it picks the number of parts from the story itself, usually 2–3 minutes each.
-                    Choose a length only if you want every part about that long. A part is never longer than 6 minutes.
+                    Choose a length only if you want every part about that long.
                   </Info>
                 </span>
                 <select value={partMinutes} onChange={(e) => setPartMinutes(e.target.value)} className="input">

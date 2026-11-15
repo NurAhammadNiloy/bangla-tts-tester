@@ -48,7 +48,7 @@ export const SFX = [
 /** Speech length limits per shot (words, voice tags not counted). */
 export const MAX_DIALOGUE_WORDS = 12;
 export const MAX_NARRATION_WORDS = 18;
-export const MAX_SHOTS = 120;
+export const MAX_SHOTS = 1000;
 
 export const NEXT_PART_TEXT = "পরের পর্ব দেখুন";
 const BN = "০১২৩৪৫৬৭৮৯";

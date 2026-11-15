@@ -65,7 +65,7 @@ export async function POST(req: Request) {
     if (!model) return Response.json({ error: "No suitable planning model found on OpenRouter right now." }, { status: 503 });
 
     if (b.mode === "scenes") {
-      const text = s(b.text, 12_000);
+      const text = s(b.text, MAX_STORY_CHARS);
       if (!text) return Response.json({ error: "This part has no text." }, { status: 400 });
       const genre = (Object.keys(GENRES).includes(b.genre as string) ? b.genre : "emotional") as Genre;
       const obj = await askJson(

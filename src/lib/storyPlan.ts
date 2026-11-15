@@ -1,7 +1,7 @@
 /**
  * Story planner, in two stages so stories of any length work:
  *  1. Outline: the AI reads the whole (numbered) story and decides where each
- *     part starts and ends — every part ≤ 6 minutes, ending on a hook.
+ *     part starts and ends — each ending on a hook. No fixed length limit.
  *  2. Scenes: when a part is opened, the AI turns just that part's sentences
  *     into scenes (narration + picture + speaker + title tag).
  * The author's sentences are kept; the AI only chooses cuts and adds directions.
@@ -29,10 +29,12 @@ export const CAPTION_STYLES: { id: CaptionStyle; label: string; about: string }[
 
 /** Bangla speech rate used for estimates (letters per second, tags removed). */
 export const LETTERS_PER_SECOND = 12;
-export const MAX_PART_SECONDS = 6 * 60;
-export const MAX_STORY_CHARS = 60_000;
-export const MAX_PARTS = 15;
-export const MAX_SCENES_PER_PART = 60;
+/** No hard part-length cap: parts are as long as the story and the chosen length need. */
+export const MAX_PART_SECONDS = Number.POSITIVE_INFINITY;
+/** Input safety only (request size), not a story-length rule. */
+export const MAX_STORY_CHARS = 500_000;
+export const MAX_PARTS = 1000;
+export const MAX_SCENES_PER_PART = 1000;
 
 /** Camera framing of one scene's picture. Never the same twice in a row. */
 export type SceneShot = "wide" | "medium" | "close-up" | "over-shoulder" | "object close-up";
@@ -150,7 +152,6 @@ export function buildOutlinePrompt(totalSeconds: number, partMinutes: number | n
     "",
     "RULES",
     `- ${size}`,
-    "- A part must NEVER be longer than 6 minutes (about 4,300 letters).",
     "- Parts are continuous and cover every sentence in order: part 1 starts at sentence 1, each next part starts right after the previous one ends, the last part ends at the last sentence.",
     "- End every part (except the last) at a moment of curiosity: a question, a reveal about to happen, danger, or a surprise — never in the middle of a calm moment.",
     "- hook: in Bangla, the open question the viewer is left with (e.g. \"দরজার ওপাশে কে ছিল?\"). For the last part, a short closing line.",
@@ -178,8 +179,7 @@ export function parseJsonLoose(raw: string): Record<string, unknown> {
 }
 
 /**
- * Turn the AI's outline into continuous, gap-free parts; split any part that is
- * still longer than 6 minutes at the sentence nearest its middle.
+ * Turn the AI's outline into continuous, gap-free parts (no length limit).
  */
 export function normalizeOutline(obj: Record<string, unknown>, sentences: string[]): StoryPlan {
   const N = sentences.length;
