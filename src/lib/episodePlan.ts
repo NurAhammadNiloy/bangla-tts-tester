@@ -8,6 +8,7 @@
  * A library-aware normalizer (engine side) can run after this one.
  */
 import type {
+  PlacedPropRef,
   Action,
   ActorInShot,
   CameraMove,
@@ -33,7 +34,10 @@ export const ACTIONS: readonly Action[] = [
 ];
 export const FACES: readonly Face[] = ["neutral", "happy", "sad", "crying", "angry", "shocked", "scared", "worried"];
 export const SHOT_SIZES: readonly ShotSize[] = ["wide", "medium", "close", "extreme_close", "two_shot", "over_shoulder", "pov_hand"];
-export const CAMERA_MOVES: readonly CameraMove[] = ["hold", "push_in", "pull_out", "pan_left", "pan_right", "shake", "whip"];
+/** Slow camera only: the planner may not ask for shake or whip (they stay in the type for old plans). */
+export const CAMERA_MOVES: readonly CameraMove[] = ["hold", "push_in", "pull_out", "pan_left", "pan_right"];
+/** Old plans / loose answers: fast moves become slow ones. */
+export const SLOW_MOVE: Partial<Record<CameraMove, CameraMove>> = { shake: "push_in", whip: "hold" };
 export const TRANSITIONS: readonly Transition[] = ["cut", "fade", "flash", "dip_black"];
 export const TIMES: readonly TimeOfDay[] = ["morning", "day", "evening", "night"];
 export const WEATHERS: readonly Weather[] = ["clear", "rain", "fog", "snow", "dust", "smoke"];
@@ -118,7 +122,9 @@ const SHOT_SCHEMA = obj({
   bubble: bool,
   pause: num,
   hook: bool,
-  props: { type: "array", items: obj({ id: str, x: num }) },
+  props: { type: "array", items: obj({ id: str, x: num, state: en(["on", "off"] as const), text: str }) },
+  music: en(["normal", "soft", "drop"] as const),
+  hold: num,
 });
 
 /** Strict JSON schema for the LLM's episode answer (converted by normalizeEpisode). */
@@ -177,9 +183,9 @@ export interface EpisodeContext {
 
 const MOOD_NOTES: Partial<Record<Genre, string>> = {
   horror:
-    "HORROR: places mostly at night, weather fog where it fits; slow push_in on dread; camera move shake + scare_sting on the reveal; leave silences (pause 0.8–2 s) before scares; heartbeat / clock_tick / door_creak under tension.",
+    "HORROR: places mostly at night, weather fog where it fits; slow push_in on dread; scare_sting on the reveal (never shake the camera); leave silences (pause 0.8–2 s) before scares; heartbeat / clock_tick / door_creak under tension.",
   comedy:
-    "COMEDY: faster rhythm (shorter lines, more cuts), happy/shocked faces, whip moves on surprises, laugh_boing or pop on punchlines (not every line).",
+    "COMEDY: faster rhythm (shorter lines, more cuts), happy/shocked faces, quick cuts on surprises (no whip), laugh_boing or pop on punchlines (not every line).",
   emotional:
     "EMOTIONAL: more close and extreme_close on feelings, slower rhythm (pause 0.5–1.2 s after heavy lines), crying/sad faces where earned, sad_sting at most once or twice.",
   drama:
@@ -257,6 +263,9 @@ export function buildEpisodePrompt(ctx: EpisodeContext): string {
     "CAMERA",
     "- Never the same camera.shot twice in a row. close or extreme_close on emotional lines; wide when arriving somewhere new; two_shot / over_shoulder for conversations.",
     "- Phone calls between two places: layout \"split\" with top = {place, actors} for one side and bottom for the other; otherwise layout \"single\" and top/bottom = {place: \"\", actors: []}.",
+    "- Camera is SLOW only: hold, push_in, pull_out or a gentle pan. Never shake or whip. Prefer hold or a very slow push_in; cuts and light fades only.",
+    "- Key line (the sentence the whole story turns on): set music = \"drop\" on that shot and hold = 3–4 (seconds of silent picture after the line). Use music = \"soft\" under quiet feeling; otherwise leave music out.",
+    "- A fan or similar prop shows state \"on\" (spinning) or \"off\" (still) inside shot.props: if the story says the fan stopped / was switched off, the last shots use state \"off\" in the SAME place as before. A number or word written in a notebook/paper prop goes in that prop's `text`.",
     "- Mostly transition \"cut\". Before a twist use \"dip_black\" or a pause (0.5–2 s). fade only for time jumps; flash for a memory.",
     "- camera.focus: the cast id the camera centres on, or \"\".",
     "",
@@ -279,8 +288,8 @@ export function buildEpisodePrompt(ctx: EpisodeContext): string {
     "",
     "ENDING",
     ctx.isLast
-      ? `- This is the last part: end on a closing line that resolves the story; end = {type: "the_end", text: "${THE_END_TEXT}"}.`
-      : `- Not the last part: end on the cliffhanger${ctx.hook ? ` (${ctx.hook})` : ""}; the last shot cuts at the peak; end = {type: "next_part", text: "${NEXT_PART_TEXT}"}.`,
+      ? `- This is the last part: end on a closing line that resolves the story; end = {type: "the_end", text: a very short closing question or line in Bangla that stays with the viewer (no call to action; "${THE_END_TEXT}" if nothing fits)}.`
+      : `- Not the last part: end on the cliffhanger${ctx.hook ? ` (${ctx.hook})` : ""}; the last shot cuts at the peak; end = {type: "next_part", text: one short Bangla question about the story that the viewer carries away (max ~8 words; never "${NEXT_PART_TEXT}", no call to action)}.`,
     "",
     "META",
     `- title: short emotional Bangla (no emoji), "<hook phrase> | <series name> পর্ব ${bnNum(n)}". caption: 1–2 Bangla lines for Facebook. episode = ${n}. mood = "${ctx.genre}". format = "9:16".`,
@@ -313,6 +322,12 @@ function clamp(x: number, lo: number, hi: number): number {
 }
 function pick<T extends string>(v: unknown, values: readonly T[], fallback: T): T {
   return typeof v === "string" && (values as readonly string[]).includes(v) ? (v as T) : fallback;
+}
+
+/** Planner camera move → a slow one (hold, push in/out, gentle pan). Shake and whip never reach a plan. */
+export function slowMove(v: unknown): CameraMove {
+  const m = pick<CameraMove>(v, ["hold", "push_in", "pull_out", "pan_left", "pan_right", "shake", "whip"], "hold");
+  return SLOW_MOVE[m] ?? m;
 }
 function round2(x: number): number {
   return Math.round(x * 100) / 100;
@@ -713,7 +728,7 @@ export function normalizeEpisode(input: R, ctx: EpisodeContext, warnings: string
     const cam = rec(raw.camera);
     const camera: Shot["camera"] = {
       shot: pick(cam.shot, SHOT_SIZES, "medium"),
-      move: pick(cam.move, CAMERA_MOVES, "hold"),
+      move: slowMove(cam.move),
     };
     const focus = resolveCast(cam.focus, refs);
     if (focus) camera.focus = focus;
@@ -740,9 +755,19 @@ export function normalizeEpisode(input: R, ctx: EpisodeContext, warnings: string
     if (!line) pause = Math.max(pause, 1.5);
     if (pause > 0) shot.pause = pause;
     if (raw.hook === true) shot.hook = true;
+    const music = pick(raw.music, ["normal", "soft", "drop"] as const, "normal");
+    if (music !== "normal") shot.music = music;
+    const hold = round2(clamp(n(raw.hold, 0), 0, 5));
+    if (hold > 0) shot.hold = hold;
     const sceneProps = arr(raw.props)
       .map(rec)
-      .map((p) => ({ id: slugId(p.id), x: round2(clamp(n(p.x, 0.5), 0, 1)) }))
+      .map((p) => {
+        const out: PlacedPropRef = { id: slugId(p.id), x: round2(clamp(n(p.x, 0.5), 0, 1)) };
+        if (p.state === "off") out.state = "off";
+        const text = s(p.text, 40);
+        if (text) out.text = text;
+        return out;
+      })
       .filter((p) => refs.props.has(p.id))
       .slice(0, 4);
     if (sceneProps.length) shot.props = sceneProps;
@@ -760,7 +785,10 @@ export function normalizeEpisode(input: R, ctx: EpisodeContext, warnings: string
         delete copy.sfx;
         delete copy.hook;
       }
-      if (i < pieces.length - 1) delete copy.pause;
+      if (i < pieces.length - 1) {
+        delete copy.pause;
+        delete copy.hold; // the held silence belongs after the last piece
+      }
       shots.push(copy);
     });
   }

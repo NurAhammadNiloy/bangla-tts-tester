@@ -57,6 +57,24 @@ function addAt(dst: Float32Array, src: Float32Array, offset: number, gain: numbe
   for (let i = a; i < b; i++) dst[i] += src[i - offset] * gain;
 }
 
+/** Multiply `g` by a smooth level (fade into and out of each region). */
+export function applyLevels(g: Float32Array, levels: { start: number; end: number; gain: number }[], sr: number): void {
+  const f = Math.round(0.35 * sr);
+  const n = g.length;
+  const mul = new Float32Array(n).fill(1);
+  for (const l of levels) {
+    const a = Math.round(l.start * sr);
+    const b = Math.round(l.end * sr);
+    if (b <= a) continue;
+    for (let i = Math.max(0, a - f); i < Math.min(n, b + f); i++) {
+      const inside = i < a ? 1 - (a - i) / f : i >= b ? 1 - (i - b) / f : 1; // 0..1 weight of this level
+      const w = 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, inside)));
+      mul[i] = Math.min(mul[i], 1 + (l.gain - 1) * w);
+    }
+  }
+  for (let i = 0; i < n; i++) g[i] *= mul[i];
+}
+
 /** Multiply `g` by a mute curve for each silence (fade out before, fade in after). */
 function applySilences(g: Float32Array, silences: { start: number; end: number }[], sr: number): void {
   const f = Math.round(SILENCE_FADE * sr);
@@ -112,6 +130,7 @@ export function mixToChannels(input: ResolvedMixInput): Float32Array[] {
     const gain = input.music.gain ?? DEFAULT_MUSIC_GAIN;
     const [ml, mr] = synthMusic(input.music.mood, input.total, sr);
     const g = duckCurve(regions, input.total, sr);
+    if (input.musicLevels?.length) applyLevels(g, input.musicLevels, sr);
     if (input.silences?.length) applySilences(g, input.silences, sr);
     for (let i = 0; i < n; i++) {
       const k = g[i] * gain;

@@ -204,8 +204,23 @@ export interface Shot {
   /** Silence (seconds) after the line, for suspense. */
   pause?: number;
   hook?: boolean;
-  /** Props placed in the scene (not held). */
-  props?: { id: string; x: number }[];
+  /** Props placed in the scene (not held). `state:"off"` keeps a fan still; `text` is written on a notebook/paper prop. */
+  props?: PlacedPropRef[];
+  /** Music level under this shot: normal bed, soft, or dropped to near silence (key lines). */
+  music?: MusicLevel;
+  /** Extra seconds of silent picture hold after the line (a key moment sinks in), 0–5. */
+  hold?: number;
+}
+
+export type MusicLevel = "normal" | "soft" | "drop";
+
+export interface PlacedPropRef {
+  id: string;
+  x: number;
+  /** "on" (default) or "off": a fan spins only while on. */
+  state?: "on" | "off";
+  /** Handwriting that appears stroke by stroke, e.g. a number in a notebook. */
+  text?: string;
 }
 
 export interface EpisodePlan {

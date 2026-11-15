@@ -5,6 +5,7 @@
  * - splitLongShots: render beats so long lines get 2–3 camera angles.
  */
 import type {
+  PlacedPropRef,
   Action,
   Asset,
   AssetLibrary,
@@ -97,6 +98,11 @@ const SYN: Record<string, Record<string, string>> = {
   time: { midnight: "night", late_night: "night", dark: "night", dawn: "morning", sunrise: "morning", early_morning: "morning", noon: "day", afternoon: "day", daytime: "day", dusk: "evening", sunset: "evening", twilight: "evening" },
   weather: { rainy: "rain", storm: "rain", drizzle: "rain", monsoon: "rain", thunderstorm: "rain", mist: "fog", misty: "fog", foggy: "fog", haze: "fog", snowy: "snow", dusty: "dust", sandstorm: "dust", smoky: "smoke", fire: "smoke", sunny: "clear", none: "clear", cloudy: "clear" },
 };
+
+/** Fast camera moves (shake, whip) become slow ones: the brief wants a calm camera. */
+function slowOnly(m: CameraMove): CameraMove {
+  return m === "shake" ? "push_in" : m === "whip" ? "hold" : m;
+}
 
 function lev(a: string, b: string): number {
   const m = a.length,
@@ -500,7 +506,7 @@ export function normalizePlan(obj: unknown, lib: AssetLibrary): { plan: EpisodeP
     const cam = isObj(s.camera) ? s.camera : {};
     shot.camera = {
       shot: closestEnum(cam.shot ?? s.shot, SHOT_LIST, "shot", "medium"),
-      move: closestEnum(cam.move ?? s.move, MOVE_LIST, "move", "hold"),
+      move: slowOnly(closestEnum(cam.move ?? s.move, MOVE_LIST, "move", "hold")),
     };
     const layout = s.layout === "split" || (isObj(s.top) && isObj(s.bottom)) ? "split" : "single";
     if (layout === "split") {
@@ -529,10 +535,21 @@ export function normalizePlan(obj: unknown, lib: AssetLibrary): { plan: EpisodeP
     if (s.bubble === true) shot.bubble = true;
     if (s.pause !== undefined) shot.pause = Math.max(0, Math.min(5, num(s.pause, 0)));
     if (s.hook === true) shot.hook = true;
+    if (s.music === "drop" || s.music === "soft") shot.music = s.music;
+    if (s.hold !== undefined) {
+      const hold = Math.max(0, Math.min(5, num(s.hold, 0)));
+      if (hold > 0) shot.hold = hold;
+    }
     if (Array.isArray(s.props)) {
       shot.props = s.props
         .filter(isObj)
-        .map((p) => ({ id: str(p.id), x: clamp01(num(p.x, 0.5)) }))
+        .map((p) => {
+          const out: PlacedPropRef = { id: str(p.id), x: clamp01(num(p.x, 0.5)) };
+          if (p.state === "off") out.state = "off";
+          const text = str(p.text, "", 40);
+          if (text) out.text = text;
+          return out;
+        })
         .filter((p) => {
           if (propOk(p.id)) return true;
           warn(`${where}: placed prop "${p.id}" unknown — dropped`);

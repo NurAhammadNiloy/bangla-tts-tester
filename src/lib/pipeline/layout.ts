@@ -8,7 +8,9 @@ import type { EpisodePlan } from "@/lib/puppet/types";
 
 export const LEAD_IN = 0.12;
 export const TAIL = 0.28;
-export const END_CARD_SECONDS = 2.6;
+export const END_CARD_SECONDS = 3.2;
+/** Seconds of true silence at the very end, under the closing question. */
+export const END_SILENCE = 2;
 export const MIN_SHOT = 1.2;
 
 export interface VoiceTiming {
@@ -34,21 +36,27 @@ export interface EpisodeLayout {
   voiceRegions: { start: number; end: number }[];
   silences: { start: number; end: number }[];
   sfx: { name: string; at: number }[];
+  /** Music level changes per shot (soft / near-silent on key lines). */
+  musicLevels: { start: number; end: number; gain: number }[];
 }
+
+export const MUSIC_GAIN = { normal: 1, soft: 0.45, drop: 0.05 } as const;
 
 export function layoutEpisode(plan: EpisodePlan, voices: VoiceTiming[], endCard = END_CARD_SECONDS): EpisodeLayout {
   const slots: ShotSlot[] = [];
   const silences: { start: number; end: number }[] = [];
   const sfx: { name: string; at: number }[] = [];
+  const musicLevels: { start: number; end: number; gain: number }[] = [];
   let t = 0;
   plan.shots.forEach((shot, i) => {
     const v = voices[i] ?? { seconds: 0, offset: 0 };
-    const pause = Math.max(0, Math.min(2, shot.pause ?? 0));
+    const pause = Math.max(0, Math.min(2, shot.pause ?? 0)) + Math.max(0, Math.min(5, shot.hold ?? 0));
     const start = t;
     const audioStart = start + LEAD_IN;
     const body = LEAD_IN + v.seconds + TAIL;
     const end = start + Math.max(MIN_SHOT, body) + pause;
     if (pause > 0) silences.push({ start: audioStart + v.seconds, end });
+    if (shot.music && shot.music !== "normal") musicLevels.push({ start: start + (shot.music === "drop" ? 0.1 : 0), end, gain: MUSIC_GAIN[shot.music] });
     for (const name of shot.sfx ?? []) sfx.push({ name, at: start + 0.05 });
     slots.push({
       shot: i,
@@ -61,6 +69,8 @@ export function layoutEpisode(plan: EpisodePlan, voices: VoiceTiming[], endCard 
     t = end;
   });
   const endCardStart = t;
+  // The closing question sits in silence: the last END_SILENCE seconds carry no music.
+  silences.push({ start: Math.max(endCardStart, t + endCard - END_SILENCE), end: t + endCard + 1 });
   return {
     slots,
     total: t + endCard,
@@ -68,6 +78,7 @@ export function layoutEpisode(plan: EpisodePlan, voices: VoiceTiming[], endCard 
     voiceRegions: slots.filter((s) => s.audioSeconds > 0).map((s) => ({ start: s.audioStart, end: s.audioStart + s.audioSeconds })),
     silences,
     sfx,
+    musicLevels,
   };
 }
 

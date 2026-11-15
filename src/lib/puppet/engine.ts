@@ -9,6 +9,7 @@
  * beat's camera move runs, so actions continue smoothly across beats.
  */
 import type {
+  PlacedPropRef,
   ActorInShot,
   AssetLibrary,
   CharacterAsset,
@@ -21,7 +22,7 @@ import type {
   ShotFrame,
 } from "./types";
 import { PALETTE } from "./styleGuide";
-import { BN_FONT, clamp, drawShapes, easeInOut, getMat, roundRectPath, setMat, strSeed, type ColorMap, type Mat } from "./draw";
+import { BN_FONT, clamp, drawShapes, easeInOut, getMat, mul, rotate, roundRectPath, setMat, strSeed, translate, type ColorMap, type Mat } from "./draw";
 import { drawCharacter, headPoints, type Pose } from "./rig";
 import { poseAt, travelAt } from "./actions";
 import {
@@ -48,6 +49,11 @@ export const ACTOR_SCALE = 1.3;
 /** Props that belong on the ceiling (fans, hanging bulbs) and props that spin (fans). */
 const CEILING_RE = /fan|ceiling|chandelier|hanging|bulb|পাখা|ফ্যান/i;
 const SPIN_RE = /fan|পাখা|ফ্যান/i;
+/** A hand fan swings back and forth (a loop) instead of spinning. */
+const HAND_FAN_RE = /hand[ _-]?fan|hatpakha|হাতপাখা|হাত পাখা/i;
+/** Handwriting reveal: starts at WRITE_START seconds and takes WRITE_SECONDS. */
+const WRITE_START = 0.4;
+const WRITE_SECONDS = 1.6;
 function propText(id: string | undefined, a: PropAsset): string {
   return `${id ?? ""} ${a.id} ${a.label ?? ""} ${a.tags.join(" ")}`;
 }
@@ -129,6 +135,15 @@ export interface PlacedProp {
   asset: PropAsset;
   x: number;
   y: number;
+  /** "off" keeps a fan still. */
+  state?: "on" | "off";
+  /** Handwriting written stroke by stroke on this prop (a notebook page, a note). */
+  text?: string;
+}
+
+/** 0..1 progress of the write-on at shot-relative time t. */
+export function writeProgress(t: number): number {
+  return clamp((t - WRITE_START) / WRITE_SECONDS, 0, 1);
 }
 
 export interface SceneState {
@@ -143,7 +158,7 @@ export interface SceneState {
 interface SceneDef {
   placeId?: string;
   actors: ActorInShot[];
-  props?: { id: string; x: number }[];
+  props?: PlacedPropRef[];
 }
 
 function hipHeight(a: CharacterAsset): number {
@@ -222,7 +237,7 @@ export function buildScene(
     // Ceiling props hang with their top just under the ceiling (well above a standing head).
     const ceilingY = floor - 600 * ACTOR_SCALE * 1.7;
     const y = CEILING_RE.test(propText(p.id, a)) ? ceilingY + a.anchor[1] * ACTOR_SCALE : floor;
-    props.push({ id: p.id, asset: a, x: frameXToPlace(p.x, pw), y });
+    props.push({ id: p.id, asset: a, x: frameXToPlace(p.x, pw), y, ...(p.state ? { state: p.state } : {}), ...(p.text ? { text: p.text } : {}) });
   }
 
   const actors: ActorState[] = [];
@@ -284,6 +299,25 @@ export function buildScene(
   return { place, ref, view, wide, actors, props };
 }
 
+/** Draw `text` in asset units inside a w×h box, revealed left to right by `progress`. */
+export function drawWriteOn(ctx: CanvasRenderingContext2D, text: string, w: number, h: number, progress: number) {
+  if (progress <= 0 || !text) return;
+  ctx.save();
+  const size = Math.min(h * 0.3, (w * 0.8) / Math.max(1, [...text].length * 0.6));
+  ctx.font = `700 ${size}px ${BN_FONT}`;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "center";
+  const tw = ctx.measureText(text).width || size * text.length * 0.6;
+  const x0 = w / 2 - tw / 2;
+  ctx.beginPath();
+  ctx.rect(x0 - size * 0.2, 0, (tw + size * 0.4) * progress, h);
+  ctx.clip();
+  ctx.fillStyle = "#23336b";
+  ctx.translate(0, 0);
+  ctx.fillText(text, w / 2, h * 0.52);
+  ctx.restore();
+}
+
 function colorMapFor(ref?: PlaceRef): ColorMap {
   const sky = skyColor(ref?.time);
   return (c) => (c === "$sky" ? sky : c === "$skyDark" ? shade(sky, 0.8) : c);
@@ -309,15 +343,26 @@ export function drawScene(ctx: CanvasRenderingContext2D, base: Mat, sc: SceneSta
   const vm = viewMatrix(sc.view, W, H, ox, oy);
   for (const p of sc.props) {
     const s = ACTOR_SCALE;
-    if (SPIN_RE.test(propText(p.id, p.asset))) {
+    const label = propText(p.id, p.asset);
+    const [ax, ay] = p.asset.anchor;
+    const m0: Mat = [vm[0] * s, 0, 0, vm[3] * s, vm[4] + vm[0] * (p.x - ax * s), vm[5] + vm[3] * (p.y - ay * s)];
+    if (SPIN_RE.test(label) && HAND_FAN_RE.test(label)) {
+      // Hand fan: a steady back-and-forth swing around the handle (loops forever).
+      setMat(ctx, base, mul(m0, mul(translate(ax, ay), mul(rotate(Math.sin(t * 7) * 0.45), translate(-ax, -ay)))));
+    } else if (SPIN_RE.test(label) && p.state !== "off") {
       // A spinning fan seen from the side: the blades sweep, so squeeze the width around the centre.
       const sx = s * (0.35 + 0.65 * Math.abs(Math.cos(t * 9)));
-      const cx = p.x - p.asset.anchor[0] * s + (p.asset.size[0] * s) / 2;
-      setMat(ctx, base, [vm[0] * sx, 0, 0, vm[3] * s, vm[4] + vm[0] * (cx - (p.asset.size[0] * sx) / 2), vm[5] + vm[3] * (p.y - p.asset.anchor[1] * s)]);
+      const cx = p.x - ax * s + (p.asset.size[0] * s) / 2;
+      setMat(ctx, base, [vm[0] * sx, 0, 0, vm[3] * s, vm[4] + vm[0] * (cx - (p.asset.size[0] * sx) / 2), vm[5] + vm[3] * (p.y - ay * s)]);
     } else {
-      setMat(ctx, base, [vm[0] * s, 0, 0, vm[3] * s, vm[4] + vm[0] * (p.x - p.asset.anchor[0] * s), vm[5] + vm[3] * (p.y - p.asset.anchor[1] * s)]);
+      setMat(ctx, base, m0); // a fan that is off hangs still
     }
     drawShapes(ctx, p.asset.shapes);
+    if (p.text) {
+      // Handwriting appears from left to right, like a pen moving.
+      setMat(ctx, base, m0);
+      drawWriteOn(ctx, p.text, p.asset.size[0], p.asset.size[1], writeProgress(t));
+    }
   }
   setMat(ctx, base, vm);
   for (const a of sc.actors) {

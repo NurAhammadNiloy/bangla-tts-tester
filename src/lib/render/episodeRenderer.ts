@@ -8,6 +8,7 @@
  */
 import { drawBubble, drawCaption, FONT, measurer, pickMimeType, roundRect, type CaptionStyle } from "./renderer";
 import type { Caption } from "./timeline";
+import { SAFE } from "./safeZone";
 
 export interface Segment {
   start: number; // seconds on the final timeline
@@ -74,7 +75,7 @@ function drawBadge(ctx: CanvasRenderingContext2D, text: string, W: number) {
   const w = measurer(ctx)(text, size) + size * 1.4;
   const h = size * 1.8;
   const x = W * 0.04;
-  const y = W * 0.05;
+  const y = ((W * 16) / 9) * SAFE.top + W * 0.01; // just under the Facebook top bar
   ctx.fillStyle = "rgba(201,79,79,0.92)";
   roundRect(ctx, x, y, w, h, h / 2);
   ctx.fill();
@@ -96,34 +97,46 @@ function drawWatermark(ctx: CanvasRenderingContext2D, text: string, W: number, H
   ctx.shadowBlur = size * 0.4;
   ctx.textBaseline = "middle";
   ctx.textAlign = "left";
-  ctx.fillText(text, W - w - W * 0.04, H * 0.035);
+  ctx.fillText(text, W - w - W * SAFE.right, H * SAFE.top + size * 1.6);
   ctx.restore();
 }
 
+/**
+ * Quiet ending: the picture fades to black, then one centred question in plain
+ * white text. No box, no button, no call-to-action animation. `alpha` 0..1 is
+ * how far the fade has gone; the text appears once the screen is mostly black.
+ */
 export function drawEndCard(ctx: CanvasRenderingContext2D, W: number, H: number, card: { text: string; sub?: string }, alpha: number) {
   ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = "rgba(18,16,22,0.82)";
+  ctx.fillStyle = `rgba(0,0,0,${Math.min(1, Math.max(0, alpha))})`;
   ctx.fillRect(0, 0, W, H);
-  const m = measurer(ctx);
-  const size = Math.round(W * 0.085);
-  ctx.font = `700 ${size}px ${FONT}`;
-  ctx.textBaseline = "middle";
-  ctx.textAlign = "left";
-  const w = m(card.text, size);
-  const bw = w + size * 1.4;
-  const bh = size * 1.9;
-  ctx.fillStyle = "#f4ecdf";
-  roundRect(ctx, (W - bw) / 2, H * 0.46 - bh / 2, bw, bh, size * 0.4);
-  ctx.fill();
-  ctx.fillStyle = "#2b2730";
-  ctx.fillText(card.text, (W - w) / 2, H * 0.46);
-  if (card.sub) {
-    const s2 = Math.round(W * 0.042);
-    ctx.font = `700 ${s2}px ${FONT}`;
-    const w2 = m(card.sub, s2);
-    ctx.fillStyle = "#f4ecdf";
-    ctx.fillText(card.sub, (W - w2) / 2, H * 0.46 + bh * 0.9);
+  const textAlpha = Math.min(1, Math.max(0, (alpha - 0.6) / 0.4));
+  if (textAlpha > 0 && card.text) {
+    ctx.globalAlpha = textAlpha;
+    const m = measurer(ctx);
+    const maxW = W * (1 - 2 * SAFE.right);
+    let size = Math.round(W * 0.07);
+    while (size > 24 && m(card.text, size) > maxW * 1.9) size = Math.round(size * 0.92);
+    ctx.font = `700 ${size}px ${FONT}`;
+    ctx.fillStyle = "#fff";
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+    const words = card.text.split(/\s+/).filter(Boolean);
+    const lines: string[] = [];
+    let cur = "";
+    for (const w of words) {
+      const next = cur ? `${cur} ${w}` : w;
+      if (cur && m(next, size) > maxW) {
+        lines.push(cur);
+        cur = w;
+      } else cur = next;
+    }
+    if (cur) lines.push(cur);
+    const lh = size * 1.45;
+    lines.slice(0, 3).forEach((line, i, arr) => {
+      const w = m(line, size);
+      ctx.fillText(line, (W - w) / 2, H * 0.5 + (i - (arr.length - 1) / 2) * lh);
+    });
   }
   ctx.restore();
 }
@@ -159,7 +172,7 @@ export function drawEpisodeFrame(
   if (input.watermark) drawWatermark(ctx, input.watermark, W, H);
   if (input.endCard) {
     const from = input.total - input.endCard.seconds;
-    if (t >= from) drawEndCard(ctx, W, H, input.endCard, Math.min(1, (t - from) / 0.4));
+    if (t >= from) drawEndCard(ctx, W, H, input.endCard, Math.min(1, (t - from) / 1.0));
   }
 }
 
@@ -170,7 +183,7 @@ export async function renderEpisode(
 ): Promise<EpisodeRenderResult> {
   const W = opts.width ?? 1080;
   const H = opts.height ?? 1920;
-  const fps = opts.fps ?? 30;
+  const fps = opts.fps ?? 24; // cinema rate; the brief asks for 24 fps
   const mimeType = pickMimeType();
   if (typeof MediaRecorder === "undefined" || !mimeType) {
     throw new Error("This browser cannot record video. Use Chrome, Edge, or Safari 15+.");

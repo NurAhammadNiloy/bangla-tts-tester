@@ -45,6 +45,8 @@ export interface MixInput {
   ambience?: { name: AmbienceName; start: number; end: number; gain?: number }[];
   /** Moments where music drops out (e.g. silence before a twist). */
   silences?: { start: number; end: number }[];
+  /** Music gain multipliers over time (1 = normal). */
+  musicLevels?: { start: number; end: number; gain: number }[];
 }
 
 /** Result of trimming a voice clip's leading/trailing silence. */

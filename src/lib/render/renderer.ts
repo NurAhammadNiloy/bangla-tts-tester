@@ -171,8 +171,9 @@ export function drawCaption(ctx: CanvasRenderingContext2D, cap: Caption, t: numb
     return;
   }
   if (style === "clean") {
-    const L = layoutCaption(cap.text, W, H, m, { centerY: 0.78, sizeRatio: 0.07 });
-    drawWords(ctx, L, activeIndex(L, cap, t, highlight), { fill: "#fff", hi: HIGHLIGHT, stroke: "rgba(0,0,0,0.85)", strokeRatio: 0.16, shadow: true });
+    // Reel subtitles: white text, thin black outline, no box, two lines at most.
+    const L = layoutCaption(cap.text, W, H, m, { centerY: 0.74, sizeRatio: 0.07 });
+    drawWords(ctx, L, activeIndex(L, cap, t, highlight), { fill: "#fff", hi: HIGHLIGHT, stroke: "#000", strokeRatio: 0.1 });
     return;
   }
   const L = layoutCaption(cap.text, W, H, m);

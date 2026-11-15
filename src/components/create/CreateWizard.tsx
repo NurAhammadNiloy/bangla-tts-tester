@@ -419,7 +419,7 @@ export default function CreateWizard() {
         total: layout.total,
         badge: `পর্ব ${bn(partIndex + 1)}`,
         watermark: s.brand.name || undefined,
-        endCard: { text: plan.end.text, sub: s.brand.name || undefined, seconds: layout.total - layout.endCardStart },
+        endCard: { text: plan.end.text, seconds: layout.total - layout.endCardStart },
         captionStyle,
       };
       const res = await renderEpisode(audio, input, {

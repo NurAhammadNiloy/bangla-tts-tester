@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateEpisode, layoutEpisode, LEAD_IN, MIN_SHOT, TAIL, END_CARD_SECONDS } from "@/lib/pipeline/layout";
+import { estimateEpisode, layoutEpisode, LEAD_IN, MIN_SHOT, TAIL, END_CARD_SECONDS, END_SILENCE, MUSIC_GAIN } from "@/lib/pipeline/layout";
 import { castVoices, voiceForShot } from "@/lib/pipeline/voices";
 import { STYLE_PRESETS } from "@/lib/voiceDirector";
 import type { EpisodePlan } from "@/lib/puppet/types";
@@ -37,12 +37,36 @@ describe("layoutEpisode", () => {
     expect(L.slots[1].start).toBeCloseTo(L.slots[0].end);
     // short line: minimum shot length, plus the suspense pause
     expect(L.slots[1].end - L.slots[1].start).toBeCloseTo(MIN_SHOT + 0.8);
-    expect(L.silences).toHaveLength(1);
+    // one suspense pause + the silent closing seconds under the end card
+    expect(L.silences).toHaveLength(2);
     expect(L.slots[2].captions).toHaveLength(0);
     expect(L.total).toBeCloseTo(L.endCardStart + END_CARD_SECONDS);
     expect(L.sfx).toEqual([{ name: "notification", at: 0.05 }]);
     expect(L.voiceRegions).toHaveLength(2);
     expect(L.slots[0].captions[0].start).toBeCloseTo(LEAD_IN);
+  });
+
+  it("holds the picture after a key line and drops the music", () => {
+    const keyed: EpisodePlan = {
+      ...plan,
+      shots: [{ ...plan.shots[0], music: "drop", hold: 3.5 }, { ...plan.shots[1], music: "soft" }, plan.shots[2]],
+    };
+    const L = layoutEpisode(keyed, [{ seconds: 2, offset: 0 }, { seconds: 0.5, offset: 0 }, { seconds: 0, offset: 0 }]);
+    expect(L.slots[0].end - L.slots[0].start).toBeCloseTo(LEAD_IN + 2 + TAIL + 3.5);
+    // the hold is a silence that starts when the voice ends
+    expect(L.silences[0].start).toBeCloseTo(LEAD_IN + 2);
+    expect(L.silences[0].end).toBeCloseTo(L.slots[0].end);
+    expect(L.musicLevels).toHaveLength(2);
+    expect(L.musicLevels[0].gain).toBe(MUSIC_GAIN.drop);
+    expect(L.musicLevels[1].gain).toBe(MUSIC_GAIN.soft);
+    expect(L.musicLevels[0].end).toBeCloseTo(L.slots[0].end);
+  });
+
+  it("leaves the last seconds silent under the closing question", () => {
+    const L = layoutEpisode(plan, [{ seconds: 1, offset: 0 }, { seconds: 1, offset: 0 }, { seconds: 0, offset: 0 }]);
+    const last = L.silences[L.silences.length - 1];
+    expect(last.end).toBeGreaterThanOrEqual(L.total);
+    expect(L.total - last.start).toBeCloseTo(END_SILENCE);
   });
 
   it("estimates length and new assets", () => {

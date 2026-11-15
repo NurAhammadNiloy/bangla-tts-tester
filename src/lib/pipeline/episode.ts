@@ -247,6 +247,7 @@ export async function mixEpisode(
       sfx: layout.sfx.map((x) => ({ name: x.name as SfxName, at: x.at })),
       ambience,
       silences: layout.silences,
+      musicLevels: layout.musicLevels,
     },
     (channels, length, sampleRate) => new AudioBuffer({ numberOfChannels: channels, length, sampleRate }),
   );

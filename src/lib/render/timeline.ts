@@ -1,3 +1,5 @@
+import { SAFE_BOTTOM_Y, SAFE_TEXT_WIDTH } from "./safeZone";
+
 /**
  * Audio-first timeline. Narration durations decide everything; visuals are fitted to them.
  */
@@ -167,8 +169,8 @@ export function layoutCaption(
   measure: (s: string, size: number) => number,
   opts: { centerY?: number; maxWidthRatio?: number; sizeRatio?: number; maxLines?: number } = {},
 ): CaptionLayout {
-  const maxW = W * (opts.maxWidthRatio ?? 0.84);
-  const maxLines = opts.maxLines ?? 3;
+  const maxW = W * Math.min(opts.maxWidthRatio ?? SAFE_TEXT_WIDTH, SAFE_TEXT_WIDTH);
+  const maxLines = opts.maxLines ?? 2; // subtitles: two lines at most
   let size = Math.round(W * (opts.sizeRatio ?? 0.076));
   let lines: string[] = [];
   for (let i = 0; i < 10; i++) {
@@ -183,7 +185,7 @@ export function layoutCaption(
   const space = measure(" ", size) || size * 0.28;
   const blockH = lines.length * lh;
   let top = H * (opts.centerY ?? 0.74) - blockH / 2;
-  top = Math.min(top, H * 0.95 - blockH - pad);
+  top = Math.min(top, H * SAFE_BOTTOM_Y - blockH - pad); // stay above the Facebook buttons
   const words: CaptionWord[] = [];
   let widest = 0;
   let index = 0;

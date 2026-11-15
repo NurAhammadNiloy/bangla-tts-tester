@@ -107,6 +107,27 @@ export const STARTER_PROPS: PropAsset[] = [
     s(C[5], P.poly([[46, 4], [66, 0], [66, 30], [46, 26]])),
     n("#f6d27a", P.poly([[66, 2], [70, 2], [70, 28], [66, 28]])),
   ]),
+  // Added for the director's brief: things a still room can hold.
+  prop("ceiling_fan", "সিলিং ফ্যান (ceiling fan, side view)", ["fan", "ceiling_fan", "ceiling", "pakha", "room", "hanging"], [240, 110], [120, 0], [
+    n(INK, P.rect(117, 0, 6, 34)),
+    s("#c9ced8", P.ellipse(48, 46, 50, 7)),
+    s("#c9ced8", P.ellipse(192, 46, 50, 7)),
+    s("#8b8f99", P.ellipse(120, 42, 22, 12)),
+  ]),
+  prop("hand_fan", "হাতপাখা (hand fan)", ["hand_fan", "hatpakha", "pakha", "fan", "village", "hand"], [90, 110], [45, 104], [
+    s("#8a5a36", P.rect(41, 58, 8, 48)),
+    s("#d9b46a", P.ellipse(45, 34, 38, 32)),
+    { d: P.curve([[45, 4], [45, 34], [45, 64]]), fill: "none", stroke: "#9a7a3a", strokeWidth: 2 },
+    { d: P.curve([[10, 34], [45, 34], [80, 34]]), fill: "none", stroke: "#9a7a3a", strokeWidth: 2 },
+  ]),
+  prop("notebook", "খাতা (notebook, top view)", ["notebook", "khata", "diary", "paper", "book", "writing"], [110, 140], [55, 140], [
+    s("#f4efe3", P.rrect(2, 2, 106, 136, 6)),
+    n("#b9c4d6", P.rect(14, 38, 82, 2)),
+    n("#b9c4d6", P.rect(14, 62, 82, 2)),
+    n("#b9c4d6", P.rect(14, 86, 82, 2)),
+    n("#b9c4d6", P.rect(14, 110, 82, 2)),
+    n("#c94f4f", P.rect(10, 2, 2, 136)),
+  ]),
 ];
 
 function GR(i: number) {
