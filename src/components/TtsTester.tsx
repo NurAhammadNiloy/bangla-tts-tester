@@ -8,6 +8,7 @@ import {
   countTags,
   GEMINI_MAX_BYTES,
   insertTag,
+  pickDefaultSpeechModel,
   presetVoice,
   STYLE_PRESETS,
   tagFamilyFor,
@@ -41,18 +42,8 @@ interface Generated {
 
 const CUSTOM_VOICE = "__custom__";
 
-/** Best Bangla option first: newest Gemini Flash TTS (bn-BD, director's notes + tags), then ElevenLabs v3. */
-const DEFAULT_MODEL_PREFERENCES = [
-  /^google\/gemini-[\d.]+-flash-tts$/,
-  /^google\/gemini-[\d.]+-flash-tts-preview$/,
-  /^elevenlabs\/eleven-v3$/,
-];
 function pickDefaultModel(list: SpeechModel[]): string {
-  for (const re of DEFAULT_MODEL_PREFERENCES) {
-    const hits = list.filter((m) => re.test(m.id)).map((m) => m.id).sort().reverse();
-    if (hits.length) return hits[0];
-  }
-  return list[0]?.id ?? "";
+  return pickDefaultSpeechModel(list.map((m) => m.id));
 }
 
 async function requestModels(): Promise<SpeechModel[]> {

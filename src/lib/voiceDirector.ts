@@ -178,3 +178,17 @@ export const GEMINI_MAX_BYTES = 4000;
 export function utf8Bytes(s: string): number {
   return new TextEncoder().encode(s).length;
 }
+
+/** Best Bangla storytelling option first: newest Gemini Flash TTS, then ElevenLabs v3. */
+export const DEFAULT_SPEECH_MODEL_PREFERENCES = [
+  /^google\/gemini-[\d.]+-flash-tts$/,
+  /^google\/gemini-[\d.]+-flash-tts-preview$/,
+  /^elevenlabs\/eleven-v3$/,
+];
+export function pickDefaultSpeechModel(ids: string[]): string {
+  for (const re of DEFAULT_SPEECH_MODEL_PREFERENCES) {
+    const hits = ids.filter((id) => re.test(id)).sort().reverse();
+    if (hits.length) return hits[0];
+  }
+  return ids[0] ?? "";
+}
