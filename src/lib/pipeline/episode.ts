@@ -56,10 +56,10 @@ export async function planEpisode(
   partIndex: number,
   lib: AssetLibrary,
   key: string,
-  opts: { narrator: "female" | "male"; previous?: EpisodePlan | null; bible?: StoryBible | null; fast?: boolean; signal?: AbortSignal },
-): Promise<{ plan: EpisodePlan; warnings: string[] }> {
+  opts: { narrator: "female" | "male"; previous?: EpisodePlan | null; bible?: StoryBible | null; /** The whole story: the server ties the bible to it. */ story?: string; fast?: boolean; signal?: AbortSignal },
+): Promise<{ plan: EpisodePlan; warnings: string[]; blocked: boolean }> {
   const part = outline.parts[partIndex];
-  const r = await postJson<{ plan: unknown; warnings?: string[] }>(
+  const r = await postJson<{ plan: unknown; warnings?: string[]; blocked?: boolean }>(
     "/api/episode",
     key,
     {
@@ -78,12 +78,13 @@ export async function planEpisode(
       narrator: opts.narrator,
       series: outline.title,
       bible: opts.bible ?? undefined,
+      story: opts.bible ? opts.story : undefined,
       fast: opts.fast === true,
     },
     opts.signal,
   );
   const n = normalizePlan(r.plan, lib);
-  return { plan: n.plan, warnings: [...(r.warnings ?? []), ...n.warnings] };
+  return { plan: n.plan, warnings: [...(r.warnings ?? []), ...n.warnings], blocked: r.blocked === true };
 }
 
 /* --------------------------------- assets --------------------------------- */

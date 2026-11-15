@@ -135,6 +135,8 @@ export default function DirectorReview(props: {
           <Count n={report.contradicted} label="Contradicted" status="contradicted" />
           {report.corrected > 0 && <Count n={report.corrected} label="Fixed to exact words" status="corrected" />}
           {report.removed > 0 && <Count n={report.removed} label="Removed (not in story)" status="removed" />}
+          {report.user.deviations > 0 && <Count n={report.user.deviations} label="Your creative changes" status="user_deviation" />}
+          {report.user.unsupported > 0 && <Count n={report.user.unsupported} label="Your additions not in story" status="user_unsupported" />}
         </ul>
         {report.findings.length > 0 && (
           <details className="mt-2" open={need > 0}>
@@ -192,7 +194,7 @@ export default function DirectorReview(props: {
               <div className="mt-3 flex flex-wrap gap-2">
                 <button className={small} onClick={() => setEditing(isEdit ? null : c.id)} aria-pressed={isEdit}>
                   {isEdit ? "✓ Done editing" : "✎ Edit"}
-                  <Info title="Edit">Change the words yourself. Your edits are trusted and kept exactly. Editing removes this card&apos;s approval until you approve it again.</Info>
+                  <Info title="Edit">Change the words yourself. Your edits are kept exactly and marked as yours. The story still checks them: something that differs from the story is shown as your creative change, not as a fact. Editing removes this card&apos;s approval until you approve it again.</Info>
                 </button>
                 <button className={small} disabled={props.busy} onClick={() => props.onRegenerate(c.id)}>
                   ↻ Regenerate
@@ -305,15 +307,21 @@ const BADGE: Record<string, { t: string; c: string; info: string }> = {
   contradicted: { t: "✗ Contradicted", c: "bg-bad/15 text-bad", info: "Your story says something different." },
   corrected: { t: "✎ Fixed", c: "bg-surface text-ink", info: "Replaced with your story's exact words." },
   removed: { t: "− Removed", c: "bg-surface text-muted", info: "Not in your story, so it was taken out." },
-  user: { t: "✎ Yours", c: "bg-surface text-ink", info: "Written by you; trusted." },
+  // The user authorizes these; only the story can support them. The badge says which it is.
+  user_supported: { t: "✎ Your addition · story supports it", c: "bg-ok/10 text-ok", info: "Your addition — the story supports it." },
+  user_unsupported: { t: "✎ Your addition · not in the story", c: "bg-accent/20 text-accent-strong", info: "Your addition — the story does not say this. It stays because you wrote it." },
+  user_deviation: { t: "✎ Your creative change · differs from story", c: "bg-accent/20 text-accent-strong", info: "User-approved creative change — differs from original story." },
 };
 
+const userKey = (check?: Verification) => (check?.status === "contradicted" ? "user_deviation" : check?.status === "verified" || check?.status === "supported" ? "user_supported" : "user_unsupported");
+
 function Badge({ check, by }: { check?: Verification; by?: By }) {
-  const key = by === "user" && check?.status !== "contradicted" ? "user" : (check?.status ?? "");
+  const key = by === "user" ? userKey(check) : (check?.status ?? "");
   const b = BADGE[key];
   if (!b) return null;
+  const detail = [check?.quote && check.quote !== "none" ? `Quote: ${check.quote === "fabricated" ? "not in the story" : check.quote === "near" ? "close to the story" : "exact"}` : "", check?.reason || b.info].filter(Boolean).join(". ");
   return (
-    <span className={`mr-1.5 inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold ${b.c}`} title={check?.reason || b.info}>
+    <span className={`mr-1.5 inline-block rounded px-1.5 py-0.5 text-[11px] font-semibold ${b.c}`} title={detail}>
       {b.t}
     </span>
   );
@@ -334,7 +342,7 @@ function StateChip({ state }: { state: CardState }) {
 
 /* -------------------------------- evidence -------------------------------- */
 
-function Evidence({ story, spans }: { story: string; spans: Span[] }) {
+export function Evidence({ story, spans }: { story: string; spans: Span[] }) {
   const parts = evidenceView(story, spans);
   if (!parts.length) return <p className="text-xs font-semibold text-accent-strong">{NO_PASSAGE}</p>;
   return (
@@ -352,7 +360,7 @@ function Evidence({ story, spans }: { story: string; spans: Span[] }) {
 }
 
 function FindingRow({ f, story }: { f: Finding; story: string }) {
-  const b = BADGE[f.status];
+  const b = f.origin === "user" ? BADGE[userKey({ status: f.status } as Verification)] : BADGE[f.status];
   return (
     <li className="rounded-lg border border-line bg-surface p-2">
       <p className="text-sm">
@@ -392,7 +400,15 @@ function Claim({ text, check, by, story, compare, onRemove, label }: { text: str
       {compare && (
         <div className="ml-2 mt-1 grid gap-1 sm:grid-cols-[auto_1fr]">
           <span className="text-[11px] font-semibold text-muted">Story:</span>
-          {by === "user" && !check?.evidence.length ? <p className="text-xs text-muted">Your own words (no story passage needed).</p> : <Evidence story={story} spans={check?.evidence ?? []} />}
+          {by === "user" && !check?.evidence.length ? (
+            <p className="text-xs text-muted">{BADGE[userKey(check)].info}</p>
+          ) : (
+            <div>
+              {by === "user" && <p className="mb-0.5 text-xs font-semibold text-accent-strong">{BADGE[userKey(check)].info} The story says:</p>}
+              <Evidence story={story} spans={check?.evidence ?? []} />
+              {check && check.status !== "verified" && check.reason && <p className="mt-0.5 text-xs text-muted">Why: {check.reason}</p>}
+            </div>
+          )}
         </div>
       )}
     </div>

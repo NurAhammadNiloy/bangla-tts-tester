@@ -72,12 +72,12 @@ describe("Story Accuracy Gate", () => {
   });
   it("marks claims by evidence instead of silently downgrading them", () => {
     const facts = bible.characters[0].facts;
-    expect(facts[0].check?.status).toBe("verified");
+    expect(facts[0].check?.status).toBe("supported"); // a real quote; meaning not confirmed by an AI cross-check
     // "has two sons": the story never says two, so it is not backed — and the AI's kind is left alone.
     expect(facts[1].check?.status).toBe("unverified");
     expect(facts[1].check?.reason).toMatch(/never says 2/);
     expect(facts[1].kind).toBe("confirmed");
-    expect(bible.events[0].check?.status).toBe("verified");
+    expect(bible.events[0].check?.status).toBe("supported");
   });
   it("drops key lines and numbers that are not in the story", () => {
     expect(bible.keyLines.map((l) => l.text)).toEqual(["মা, আমি ভালো আছি"]);
@@ -201,10 +201,11 @@ describe("routes", () => {
     expect(res.status).toBe(400);
   });
 
-  it("/api/episode sends the bible to the planner and strips unknown cast", async () => {
+  it("/api/episode sends the bible to the planner and reports (never silently deletes) unknown cast", async () => {
     const gated = runAccuracyGate(normalizeBible(raw), STORY).bible;
-    const unapproved = await episodePost(req("/api/episode", { text: STORY, genre: "emotional", bible: gated, fast: true }));
+    const unapproved = await episodePost(req("/api/episode", { text: STORY, story: STORY, genre: "emotional", bible: gated, fast: true }));
     expect(unapproved.status).toBe(409); // never plan from an unapproved bible
+    expect((await unapproved.json()).code).toBe("bible_not_approved");
     const bible = SECTIONS.reduce((b, sec) => approveSection(b, sec), gated);
     const episode = {
       understanding: { summary: "s", people: [], places: [], key_moments: [], never_show: [] },
@@ -224,14 +225,16 @@ describe("routes", () => {
       end: { type: "the_end", text: "শেষ" },
     };
     const { calls } = mockFetch((url) => (url.endsWith("/models") ? Response.json(models) : chat(episode)));
-    const res = await episodePost(req("/api/episode", { text: STORY, genre: "emotional", bible, fast: true }));
+    const res = await episodePost(req("/api/episode", { text: STORY, story: STORY, genre: "emotional", bible, fast: true }));
     expect(res.status).toBe(200);
     const j = await res.json();
     const chatCall = calls.find((c) => c.url.includes("chat/completions"));
     expect(JSON.stringify(chatCall?.body)).toMatch(/STORY BIBLE/);
     expect(chatCall?.body?.model).toBe("google/gemini-3-flash"); // fast model used
-    expect(j.plan.cast.map((c: { id: string }) => c.id)).toEqual(["rahima"]);
-    expect(j.warnings.join(" ")).toMatch(/kabir/);
+    // nothing is removed behind the author's back: the plan is returned as planned, with a blocking report
+    expect(j.plan.cast.map((c: { id: string }) => c.id)).toEqual(["rahima", "kabir"]);
+    expect(j.blocked).toBe(true);
+    expect(j.report.hard.map((h: { id: string }) => h.id)).toContain("unknown_character:kabir");
   });
 });
 

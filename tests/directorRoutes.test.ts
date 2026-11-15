@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import charFixture from "@/lib/__fixtures__/character.nurse_young_f.llm.json";
 import episodeFixture from "@/lib/__fixtures__/episode.nurse.llm.json";
 import { OpenRouterError } from "@/lib/openrouter/errors";
@@ -46,7 +46,9 @@ beforeEach(() => {
   _resetRateLimit();
   _resetPlannerCache();
   chat.mockReset();
+  vi.stubEnv("GOLPO_ALLOW_UNBOUND_PLAN", "1"); // explicit development path: these tests exercise the planner itself, not the approval gate
 });
+afterEach(() => vi.unstubAllEnvs());
 
 describe("POST /api/episode", () => {
   it("401 without key, 400 without text, never calls the model", async () => {

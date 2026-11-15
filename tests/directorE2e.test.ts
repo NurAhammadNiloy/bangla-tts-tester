@@ -40,8 +40,12 @@ function post(path: string, body: unknown) {
 beforeEach(() => {
   _resetRateLimit();
   _resetPlannerCache();
+  vi.stubEnv("GOLPO_ALLOW_UNBOUND_PLAN", "1"); // explicit development path
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 describe("director e2e (mock OpenRouter)", () => {
   it("plans the nurse episode", async () => {

@@ -25,10 +25,12 @@ import {
   splitSentences,
   storyHash,
   verifyClaim,
+  confirmClaim,
   type Span,
   type Verification,
   type VerifyStatus,
 } from "@/lib/storyEvidence";
+import type { Alias } from "@/lib/lexicon";
 
 export { foldText, inStory } from "@/lib/storyEvidence";
 
@@ -36,10 +38,23 @@ export const FACT_KINDS = ["confirmed", "inference", "creative_choice", "prohibi
 export type FactKind = (typeof FACT_KINDS)[number];
 export type By = "ai" | "user" | "system";
 
+/**
+ * A rule code can check on a shot plan (everything else is left to a human).
+ *  never_present  – this person is never on screen (a flashback/key scene that lists them is the exception)
+ *  never_together – these two are never in the same shot
+ *  never_says     – these words are never spoken in a shot where one of `whenPresent` is a party
+ */
+export type RuleSpec =
+  | { type: "never_present"; who: string; place?: string }
+  | { type: "never_together"; who: string; other: string }
+  | { type: "never_says"; terms: string[]; whenPresent: string[] };
+
 export interface BibleFact {
   id: string;
   kind: FactKind;
   text: string;
+  /** Machine-checkable form of a prohibited_change (optional). */
+  rule?: RuleSpec;
   /** A Bangla quote the AI says is from the story. */
   source?: string;
   /** Sentence ids the AI cited ("S12"). */
@@ -173,6 +188,22 @@ export interface StoryBible {
   approvals: Partial<Record<BibleSection, Approval>>;
   /** Set when every card was approved for this revision. */
   approvedAt?: number;
+  /** What the user added, changed or removed (kept as an audit trail; never replaces source evidence). */
+  audit?: AuditEntry[];
+}
+
+export interface AuditEntry {
+  /** Bible revision this change produced. */
+  revision: number;
+  at: number;
+  action: "added" | "changed" | "removed";
+  section: BibleSection;
+  ref: string;
+  text: string;
+  was?: string;
+  by: By;
+  /** What the story says about it at that moment. */
+  sourceStatus?: VerifyStatus;
 }
 
 export type BibleSection = "story" | "characters" | "scenes" | "ending" | "rules";
@@ -188,6 +219,14 @@ function obj(properties: Record<string, unknown>) {
   return { type: "object", additionalProperties: false, required: Object.keys(properties), properties } as const;
 }
 const FACT = obj({ kind: en(FACT_KINDS), text: str, source: str, evidence: strArr });
+const RULE_TYPES = ["none", "never_present", "never_together", "never_says"] as const;
+const RULE_FACT = obj({
+  kind: en(FACT_KINDS),
+  text: str,
+  source: str,
+  evidence: strArr,
+  rule: obj({ type: en(RULE_TYPES), who: str, other: str, place: str, terms: strArr, when_present: strArr }),
+});
 
 export const BIBLE_SCHEMA = obj({
   message: str,
@@ -211,7 +250,7 @@ export const BIBLE_SCHEMA = obj({
   ending_beats: { type: "array", items: FACT },
   final_line: str,
   pacing: str,
-  prohibited: { type: "array", items: FACT },
+  prohibited: { type: "array", items: RULE_FACT },
 });
 
 const EVIDENCE_RULE =
@@ -241,6 +280,7 @@ export function buildBiblePrompt(opts: { genre: Genre; partsTotal: number; userR
     "- ending: how the last shot should look. Stage only possible things (a person cannot hold a phone to the ear and look at its screen at the same time).",
     "- final_line: the story's last line, copied exactly.",
     "- pacing: slow or fast, where to hold silence.",
+    "- prohibited: each item also gets `rule` so code can check it on the shot plan: type never_present (who = character id that must never appear on screen; place optional), never_together (who + other never in the same shot), never_says (terms = Bangla AND English words that must never be spoken while anyone in when_present is a party to the shot, e.g. a secret kept from someone), or none when it cannot be checked (then leave who/other/place empty and lists []). Use character ids from `characters`.",
     "- prohibited: story-specific things that must never be changed or shown, each with evidence: secrets a character keeps from another (who must never tell whom what), people who never meet in person, returns or reunions the story does not tell, people who must never be inside an empty place, scenes that must not be left out.",
     "Be complete. Write in simple English except copied story text, which stays Bangla.",
   ]
@@ -291,7 +331,20 @@ function normFact(raw: unknown, id: string, fallback: FactKind = "inference"): B
   const source = s(o.source, 800);
   const evidence = strs(o.evidence, 12);
   const check = normCheck(o.check);
-  return { id: s(o.id, 40) || id, kind, text, ...(source ? { source } : {}), ...(evidence.length ? { evidence } : {}), ...(check ? { check } : {}), by: byOf(o.by) };
+  const rule = normRule(o.rule);
+  return { id: s(o.id, 40) || id, kind, text, ...(rule ? { rule } : {}), ...(source ? { source } : {}), ...(evidence.length ? { evidence } : {}), ...(check ? { check } : {}), by: byOf(o.by) };
+}
+
+function normRule(v: unknown): RuleSpec | undefined {
+  const o = rec(v);
+  const id = (x: unknown) => slug(x) || "";
+  const type = o.type;
+  if (type === "never_present" && id(o.who)) return { type, who: id(o.who), ...(id(o.place) ? { place: id(o.place) } : {}) };
+  if (type === "never_together" && id(o.who) && id(o.other)) return { type, who: id(o.who), other: id(o.other) };
+  const terms = strs(o.terms, 60).slice(0, 12);
+  const present = strs(o.whenPresent ?? o.when_present, 40).map((x) => id(x)).filter(Boolean).slice(0, 8);
+  if (type === "never_says" && terms.length && present.length) return { type, terms, whenPresent: present };
+  return undefined;
 }
 
 const facts = (v: unknown, prefix: string, fallback?: FactKind) =>
@@ -438,14 +491,17 @@ export function normalizeBible(input: unknown): StoryBible {
 
 /* ------------------------------ accuracy gate ------------------------------ */
 
-const USER_CHECK = (story: string, text: string, source?: string): Verification => {
-  const v = verifyClaim(story, { text, source });
-  return { ...v, status: v.status === "contradicted" ? "contradicted" : "verified", method: "user", reason: v.status === "contradicted" ? `Your edit: ${v.reason}` : "Written by you; trusted." };
-};
+/** People of the bible as anchors for English claims ("mizan" ↔ মিজান). Never required, only helpful. */
+export const aliasesOf = (b: Pick<StoryBible, "characters">): Alias[] =>
+  b.characters.map((c) => ({ en: [c.id.replace(/_/g, " ")], bn: [c.name, ...c.mentions], kind: "person" as const }));
 
-function checkClaim<T extends { text?: string; source?: string; evidence?: string[]; by?: By }>(story: string, item: T, text: string): Verification {
-  if (item.by === "user") return USER_CHECK(story, text, item.source);
-  return verifyClaim(story, { text, source: item.source, evidence: item.evidence });
+/**
+ * One claim, one honest source status. User-written claims get the same check as the AI's: the
+ * user authorizes content, the story is the only thing that can support it. A user claim that
+ * disagrees with the story stays "contradicted" (shown as a creative change, not as a fact).
+ */
+function checkClaim<T extends { text?: string; source?: string; evidence?: string[]; by?: By }>(story: string, item: T, text: string, aliases: Alias[]): Verification {
+  return verifyClaim(story, { text, source: item.source, evidence: item.evidence }, { aliases });
 }
 
 export const EMPTY_WHO = /^(nobody|no one|none|empty|nil|কেউ নেই|কেউ না|খালি)/i;
@@ -474,6 +530,7 @@ export function baselineRules(b: Pick<StoryBible, "characters" | "relations" | "
 export function runAccuracyGate(input: StoryBible, story: string): { bible: StoryBible; report: GateReport } {
   const removed: Removed[] = []; // a fresh gate run starts a fresh list
   const corrections: Correction[] = [];
+  const al = aliasesOf(input);
 
   const characters: BibleCharacter[] = [];
   for (const c of input.characters) {
@@ -482,7 +539,7 @@ export function runAccuracyGate(input: StoryBible, story: string): { bible: Stor
       removed.push({ section: "characters", what: "Person", text: c.name, reason: "This name is never used in the story." });
       continue;
     }
-    characters.push({ ...c, mentions: found.length ? found : c.mentions, facts: c.facts.map((f) => ({ ...f, check: checkClaim(story, f, f.text) })) });
+    characters.push({ ...c, mentions: found.length ? found : c.mentions, facts: c.facts.map((f) => ({ ...f, check: checkClaim(story, f, f.text, al) })) });
   }
   const ids = new Set(characters.map((c) => c.id));
   const relations = input.relations
@@ -491,51 +548,53 @@ export function runAccuracyGate(input: StoryBible, story: string): { bible: Stor
       removed.push({ section: "characters", what: "Relation", text: `${r.from} ${r.relation} ${r.to}`, reason: "It names a person who is not in the story." });
       return false;
     })
-    .map((r) => ({ ...r, check: checkClaim(story, r, `${r.from} ${r.relation} ${r.to}`) }));
-  const places = input.places.map((p) => ({ ...p, check: checkClaim(story, p, `${p.name}: ${p.description}`) }));
+    .map((r) => ({ ...r, check: checkClaim(story, r, `${r.from} ${r.relation} ${r.to}`, al) }));
+  const places = input.places.map((p) => ({ ...p, check: checkClaim(story, p, `${p.name}: ${p.description}`, al) }));
 
   const keyLines: BibleKeyLine[] = [];
   for (const l of input.keyLines) {
     if (l.by === "user") {
-      keyLines.push({ ...l, check: USER_CHECK(story, l.text, l.text) });
+      // The user's own line stays; the story only says whether those exact words are in it.
+      keyLines.push({ ...l, check: verifyClaim(story, { text: "", source: l.text }, { literal: true }) });
       continue;
     }
-    const v = verifyClaim(story, { text: "", source: l.text });
+    const v = verifyClaim(story, { text: "", source: l.text }, { literal: true });
     const at = v.method === "exact_quote" ? locate(story, l.text) : null;
     if (v.status === "verified" && at) {
       // Keep the story's exact characters (punctuation included), and say so when they differ.
       const real = story.slice(at.start, at.end);
       if (real !== l.text) corrections.push({ section: "scenes", from: l.text, to: real, reason: "Copied the story's exact punctuation and spelling for this line." });
       keyLines.push({ ...l, text: real, check: v });
-    } else if (v.status === "verified" && v.method === "near_quote") {
+    } else if (v.method === "near_quote" && v.status !== "contradicted") {
       const real = v.evidence.map((e) => story.slice(e.start, e.end)).join(" ");
       corrections.push({ section: "scenes", from: l.text, to: real, reason: "The AI's copy of this line was not word for word; replaced with the story's exact words." });
-      keyLines.push({ ...l, text: real, check: { ...verifyClaim(story, { text: "", source: real }) } });
+      keyLines.push({ ...l, text: real, check: verifyClaim(story, { text: "", source: real }, { literal: true }) });
     } else removed.push({ section: "scenes", what: "Line", text: l.text, reason: v.status === "contradicted" ? v.reason : "This line is not in the story." });
   }
   const storyNums = new Set(numbersIn(story));
   const keyNumbers: BibleKeyNumber[] = [];
   for (const n of input.keyNumbers) {
     if (n.by === "user") {
-      keyNumbers.push(n);
+      const nums = numbersIn(n.value);
+      keyNumbers.push({ ...n, check: nums.length && nums.every((x) => storyNums.has(x)) ? verifyClaim(story, { text: n.value, source: n.value }, { literal: true }) : { status: "unverified", support: "absent", method: "none", evidence: [], reason: "The story never says this number." } });
       continue;
     }
     const at = locate(story, n.value);
     const nums = numbersIn(n.value);
     if (at) {
       const sent = splitSentences(story).find((x) => at.start >= x.start && at.start < x.end);
-      keyNumbers.push({ ...n, check: { status: "verified", method: "exact_quote", evidence: [{ ...at, sentence: sent?.id ?? "" }], reason: "This number is written in the story." } });
+      keyNumbers.push({ ...n, check: { status: "verified", quote: "exact", support: "literal", method: "exact_quote", evidence: [{ ...at, sentence: sent?.id ?? "" }], reason: "This number is written in the story." } });
     } else if (nums.length && nums.every((x) => storyNums.has(x))) {
       const sent = splitSentences(story).find((x) => numbersIn(x.text).includes(nums[0]));
       keyNumbers.push({
         ...n,
-        check: { status: "verified", method: "near_quote", evidence: sent ? [{ start: sent.start, end: sent.end, sentence: sent.id }] : [], reason: "The story writes this number in words." },
+        check: { status: "verified", quote: "near", support: "literal", method: "near_quote", evidence: sent ? [{ start: sent.start, end: sent.end, sentence: sent.id }] : [], reason: "The story writes this number in words." },
       });
     } else removed.push({ section: "scenes", what: "Number", text: `${n.value} (${n.meaning})`, reason: "The story never says this number." });
   }
-  const keyMoments = input.keyMoments.map((m) => ({ ...m, visible: m.visible.filter((v) => ids.has(v) || m.by === "user"), check: checkClaim(story, m, m.text) }));
-  const events = input.events.map((f) => ({ ...f, check: checkClaim(story, f, f.text) }));
-  const endingBeats = input.endingBeats.map((f) => ({ ...f, check: checkClaim(story, f, f.text) }));
+  const keyMoments = input.keyMoments.map((m) => ({ ...m, visible: m.visible.filter((v) => ids.has(v) || m.by === "user"), check: checkClaim(story, m, m.text, al) }));
+  const events = input.events.map((f) => ({ ...f, check: checkClaim(story, f, f.text, al) }));
+  const endingBeats = input.endingBeats.map((f) => ({ ...f, check: checkClaim(story, f, f.text, al) }));
 
   const last = lastSentence(story)?.text ?? "";
   // The final line is always copied by code from the story itself.
@@ -543,7 +602,7 @@ export function runAccuracyGate(input: StoryBible, story: string): { bible: Stor
   if (last && input.finalLine && foldText(input.finalLine).replace(/[^\p{L}\p{N}]/gu, "") !== foldText(last).replace(/[^\p{L}\p{N}]/gu, ""))
     corrections.push({ section: "ending", from: input.finalLine, to: last, reason: "The final line must be the story's own last line; copied from the story." });
 
-  const aiRules = input.prohibited.filter((f) => f.by !== "system").map((f) => ({ ...f, kind: "prohibited_change" as const, check: f.evidence?.length || f.source ? checkClaim(story, f, f.text) : undefined }));
+  const aiRules = input.prohibited.filter((f) => f.by !== "system").map((f) => ({ ...f, kind: "prohibited_change" as const, check: f.evidence?.length || f.source ? checkClaim(story, f, f.text, al) : undefined }));
   const draft = { characters, relations, places, keyNumbers, finalLine };
   const prohibited = [...baselineRules(draft), ...aiRules];
 
@@ -579,6 +638,30 @@ export interface ClaimRef {
   source?: string;
 }
 
+export type ClaimKind = "source_claim" | "supported_addition" | "unsupported_addition" | "creative_deviation";
+
+export interface ClaimView {
+  origin: By;
+  /** What the STORY says about this claim. */
+  sourceStatus: VerifyStatus | "unchecked";
+  /** Whether the card holding it is approved for its current content (separate from sourceStatus). */
+  approval: "approved" | "unapproved";
+  kind: ClaimKind;
+  /** A label that is true: never "verified" for something only the user said. */
+  label: string;
+}
+
+/** Origin, source status and approval of one claim, kept apart on purpose. */
+export function claimView(b: StoryBible, c: ClaimRef): ClaimView {
+  const origin: By = c.by ?? "ai";
+  const sourceStatus = c.check?.status ?? "unchecked";
+  const approval = isApproved(b, c.section) ? "approved" : "unapproved";
+  if (origin !== "user") return { origin, sourceStatus, approval, kind: "source_claim", label: "" };
+  if (sourceStatus === "contradicted") return { origin, sourceStatus, approval, kind: "creative_deviation", label: "User-approved creative change — differs from original story." };
+  if (sourceStatus === "supported" || sourceStatus === "verified") return { origin, sourceStatus, approval, kind: "supported_addition", label: "Your addition — the story supports it." };
+  return { origin, sourceStatus, approval, kind: "unsupported_addition", label: "Your addition — the story does not say this." };
+}
+
 /** Every checkable claim of the bible, in reading order. */
 export function listClaims(b: StoryBible): ClaimRef[] {
   const out: ClaimRef[] = [];
@@ -591,7 +674,7 @@ export function listClaims(b: StoryBible): ClaimRef[] {
   b.keyLines.forEach((l) => out.push({ ref: l.id, section: "scenes", label: "Exact line", text: l.text, by: l.by, check: l.check }));
   b.keyNumbers.forEach((n, i) => out.push({ ref: `NUM${i + 1}`, section: "scenes", label: "Number", text: `${n.value} — ${n.meaning}`, by: n.by, check: n.check }));
   b.endingBeats.forEach((f) => out.push({ ref: f.id, section: "ending", label: "Ending", text: f.text, by: f.by, check: f.check, source: f.source }));
-  b.prohibited.forEach((f) => f.check && out.push({ ref: f.id, section: "rules", label: "Rule", text: f.text, by: f.by, check: f.check, source: f.source }));
+  b.prohibited.forEach((f) => (f.check || f.by === "user") && out.push({ ref: f.id, section: "rules", label: "Rule", text: f.text, by: f.by, check: f.check, source: f.source }));
   return out;
 }
 
@@ -605,6 +688,8 @@ export interface Finding {
   evidence: Span[];
   suggestion?: string;
   aiQuote?: string;
+  /** Who wrote the claim. User claims are authorized by the user, so they are never "need your check". */
+  origin?: By;
 }
 
 export interface GateReport {
@@ -614,6 +699,8 @@ export interface GateReport {
   contradicted: number;
   corrected: number;
   removed: number;
+  /** Things the user wrote: how the story relates to them. */
+  user: { supported: number; unsupported: number; deviations: number };
   /** Only things a person should look at: unverified, contradicted, corrected, removed. */
   findings: Finding[];
   /** Simple English lines (also for older screens). */
@@ -622,10 +709,19 @@ export interface GateReport {
 
 /** The report is always worked out from the bible itself, so it can never be stale. */
 export function summarize(b: StoryBible): GateReport {
-  const r: GateReport = { verified: 0, supported: 0, unverified: 0, contradicted: 0, corrected: b.corrections.length, removed: b.removed.length, findings: [], notes: [] };
+  const r: GateReport = { verified: 0, supported: 0, unverified: 0, contradicted: 0, corrected: b.corrections.length, removed: b.removed.length, user: { supported: 0, unsupported: 0, deviations: 0 }, findings: [], notes: [] };
   for (const c of listClaims(b)) {
     const st = c.check?.status;
     if (!st || c.section === "rules") continue;
+    if (c.by === "user") {
+      // The user authorizes it; the story only says whether it backs it.
+      if (st === "contradicted") r.user.deviations++;
+      else if (st === "unverified") r.user.unsupported++;
+      else r.user.supported++;
+      if (st === "contradicted" || st === "unverified")
+        r.findings.push({ ref: c.ref, section: c.section, label: claimView(b, c).label, claim: c.text, status: st, reason: c.check!.reason, evidence: c.check!.evidence, aiQuote: c.source, origin: "user" });
+      continue;
+    }
     r[st]++;
     if (st === "unverified" || st === "contradicted")
       r.findings.push({ ref: c.ref, section: c.section, label: c.label, claim: c.text, status: st, reason: c.check!.reason, evidence: c.check!.evidence, suggestion: c.check!.suggestion, aiQuote: c.source });
@@ -644,7 +740,9 @@ export function summaryLine(r: GateReport): string {
   if (r.contradicted) parts.push(`${r.contradicted} disagree${r.contradicted > 1 ? "" : "s"} with the story`);
   if (r.corrected) parts.push(`${r.corrected} copied line${r.corrected > 1 ? "s were" : " was"} fixed to the story's exact words`);
   if (r.removed) parts.push(`${r.removed} item${r.removed > 1 ? "s" : ""} not in the story ${r.removed > 1 ? "were" : "was"} removed`);
-  if (!parts.length) return `All ${r.verified + r.supported} claims point to real sentences in your story.`;
+  if (r.user.deviations) parts.push(`${r.user.deviations} of your changes differ${r.user.deviations > 1 ? "" : "s"} from the story (your choice)`);
+  if (r.user.unsupported) parts.push(`${r.user.unsupported} of your additions ${r.user.unsupported > 1 ? "are" : "is"} not in the story (your choice)`);
+  if (!need && !r.corrected && !r.removed && !r.user.deviations && !r.user.unsupported) return `All ${r.verified + r.supported} claims point to real sentences in your story.`;
   return `${parts.join(" · ")}.`;
 }
 
@@ -692,13 +790,12 @@ export function applySemantic(b: StoryBible, story: string, results: unknown): S
     const quoted = item.check.method === "exact_quote" || item.check.method === "near_quote";
     if (quoted && !(r.verdict === "contradicted" && spans.length)) return item;
     if (r.verdict === "supported" && spans.length) {
-      const again = verifyClaim(story, { text, evidence: spans.map((x) => x.sentence) });
-      if (again.status === "contradicted") return { ...item, check: again };
-      return { ...item, check: { status: "verified", method: "semantic", evidence: again.evidence, reason: reason || "An AI cross-check found these sentences say it." } };
+      const src = (item as { source?: string }).source;
+      return { ...item, check: confirmClaim(story, { text, source: src, evidence: (item as { evidence?: string[] }).evidence }, spans.map((x) => x.sentence), reason || "An AI cross-check found these sentences say it.", { aliases: aliasesOf(b) }) };
     }
     if (r.verdict === "contradicted" && spans.length)
-      return { ...item, check: { status: "contradicted", method: "semantic", evidence: spans, reason: reason || "The story says something different.", suggestion: "Read the passage and edit this claim." } };
-    if (r.verdict === "not_found") return { ...item, check: { status: "unverified", method: "semantic", evidence: [], reason: reason ? `${reason} ${NO_PASSAGE_HINT}` : NO_PASSAGE_HINT } };
+      return { ...item, check: { status: "contradicted", support: "contradicted", method: "semantic", evidence: spans, reason: reason || "The story says something different.", suggestion: "Read the passage and edit this claim." } };
+    if (r.verdict === "not_found") return { ...item, check: { status: "unverified", support: "absent", method: "semantic", evidence: [], reason: reason ? `${reason} ${NO_PASSAGE_HINT}` : NO_PASSAGE_HINT } };
     return item;
   };
   const name = (id: string) => b.characters.find((c) => c.id === id)?.name ?? id;
@@ -755,9 +852,32 @@ export function cardState(b: StoryBible, section: BibleSection): CardState {
 }
 
 /** A changed bible: next revision, whole-bible approval cleared unless every card still matches. */
-export function revise(prev: StoryBible, next: StoryBible): StoryBible {
+export function revise(prev: StoryBible, next: StoryBible, now = Date.now()): StoryBible {
   const out: StoryBible = { ...next, revision: Math.max(prev.revision, next.revision) + 1 };
+  const trail = auditChanges(prev, out, now);
+  if (trail.length) out.audit = [...(prev.audit ?? next.audit ?? []), ...trail].slice(-200);
+  else if (prev.audit || next.audit) out.audit = prev.audit ?? next.audit;
   if (!SECTIONS.every((sec) => isApproved(out, sec))) delete out.approvedAt;
+  return out;
+}
+
+/** What the user added, changed or removed between two versions (their own items only). */
+function auditChanges(prev: StoryBible, next: StoryBible, now: number): AuditEntry[] {
+  const key = (c: ClaimRef) => c.ref;
+  const before = new Map(listClaims(prev).filter((c) => c.by === "user").map((c) => [key(c), c]));
+  const after = new Map(listClaims(next).filter((c) => c.by === "user").map((c) => [key(c), c]));
+  const out: AuditEntry[] = [];
+  const entry = (action: AuditEntry["action"], c: ClaimRef, was?: string): AuditEntry => ({ revision: next.revision, at: now, action, section: c.section, ref: c.ref, text: c.text, ...(was !== undefined ? { was } : {}), by: "user", ...(c.check ? { sourceStatus: c.check.status } : {}) });
+  for (const [k, c] of after) {
+    const old = before.get(k);
+    if (!old) out.push(entry("added", c));
+    else if (old.text !== c.text) out.push(entry("changed", c, old.text));
+  }
+  for (const [k, c] of before) if (!after.has(k)) out.push(entry("removed", c));
+  // rules the user removed: AI/system rules disappearing is an authorized deviation too
+  const rulesBefore = new Map(prev.prohibited.map((f) => [f.id, f]));
+  const rulesAfter = new Set(next.prohibited.map((f) => f.id));
+  for (const [id, f] of rulesBefore) if (!rulesAfter.has(id) && f.by !== "user") out.push({ revision: next.revision, at: now, action: "removed", section: "rules", ref: id, text: f.text, by: "user", ...(f.check ? { sourceStatus: f.check.status } : {}) });
   return out;
 }
 
@@ -791,10 +911,67 @@ export function rawApprovedSections(raw: unknown): { approved: BibleSection[]; o
   return { approved, open };
 }
 
-/** Upgrade a stored bible: v1 bibles are re-checked against the story by code (free, no AI). */
+/**
+ * Recompute every claim's check from the story, keeping the CONTENT (and so every approval hash)
+ * exactly as it is. This is what the server does with a bible the browser sent: statuses sent by
+ * the browser are never trusted. The only thing kept from a stored check is a "contradicted"
+ * verdict of the AI cross-check (it can only make a card stricter, never looser).
+ */
+export function recheck(b: StoryBible, story: string): StoryBible {
+  const al = aliasesOf(b);
+  const keep = (old: Verification | undefined, fresh: Verification): Verification => {
+    if (old?.method === "semantic" && old.status === "contradicted" && fresh.status !== "contradicted" && old.evidence.every((e) => e.end <= story.length)) return { ...old, quote: fresh.quote };
+    return fresh;
+  };
+  const item = <T extends { text: string; source?: string; evidence?: string[]; check?: Verification }>(x: T, text = x.text): T => ({ ...x, check: keep(x.check, verifyClaim(story, { text, source: x.source, evidence: x.evidence }, { aliases: al })) });
+  const name = (id: string) => b.characters.find((c) => c.id === id)?.name ?? id;
+  const storyNums = new Set(numbersIn(story));
+  return {
+    ...b,
+    events: b.events.map((f) => item(f)),
+    characters: b.characters.map((c) => ({ ...c, facts: c.facts.map((f) => item(f)) })),
+    relations: b.relations.map((r) => ({ ...r, check: keep(r.check, verifyClaim(story, { text: `${name(r.from)} ${r.relation} ${name(r.to)}`, source: r.source, evidence: r.evidence }, { aliases: al })) })),
+    places: b.places.map((p) => ({ ...p, check: keep(p.check, verifyClaim(story, { text: `${p.name}: ${p.description}`, source: p.source, evidence: p.evidence }, { aliases: al })) })),
+    keyMoments: b.keyMoments.map((m) => item(m)),
+    endingBeats: b.endingBeats.map((f) => item(f)),
+    keyLines: b.keyLines.map((l) => ({ ...l, check: verifyClaim(story, { text: "", source: l.text }, { literal: true }) })),
+    keyNumbers: b.keyNumbers.map((n) => {
+      const nums = numbersIn(n.value);
+      const ok = nums.length > 0 && nums.every((x) => storyNums.has(x));
+      return { ...n, check: ok ? verifyClaim(story, { text: n.value, source: n.value }, { literal: true }) : ({ status: "unverified", support: "absent", method: "none", evidence: [], reason: "The story never says this number." } as Verification) };
+    }),
+    prohibited: b.prohibited.map((f) => (f.evidence?.length || f.source ? item(f) : f)),
+  };
+}
+
+/**
+ * Upgrade a stored bible: v1 bibles are re-checked against the story by code (free, no AI).
+ * If the story is no longer the one the bible was made from, every check is recomputed against
+ * the NEW text (so highlighted passages are never stale offsets) and all approvals are cleared.
+ * The bible keeps its old story hash on purpose: that is what marks it as outdated.
+ */
 export function loadBible(stored: unknown, story: string): StoryBible {
   const b = normalizeBible(stored);
-  return (stored as { version?: number })?.version === 2 ? b : runAccuracyGate(b, story).bible;
+  const v2 = (stored as { version?: number })?.version === 2;
+  const out = v2 ? b : runAccuracyGate(b, story).bible;
+  // Bibles checked by an older engine ("verified" for any real quote): re-check them with the current rules.
+  // Content, and so every approval, stays as it is; only the statuses are recomputed.
+  const legacy = v2 && listClaims(b).some((c) => c.check && c.check.support === undefined);
+  if (legacy && !(b.storyHash && b.storyHash !== storyHash(story))) return recheck(b, story);
+  if (v2 && b.storyHash && b.storyHash !== storyHash(story)) {
+    const r = recheck(b, story);
+    return { ...r, approvals: {}, approvedAt: undefined, revision: r.revision + 1, storyHash: b.storyHash };
+  }
+  return out;
+}
+
+/** Is a saved shot plan still based on the current approved bible and story? */
+export function planFreshness(rec: { bibleHash?: string; storyHash?: string } | null | undefined, b: StoryBible | null | undefined, story: string): { stale: boolean; reason?: string } {
+  if (!b) return { stale: false };
+  if (!rec?.bibleHash) return { stale: true, reason: "This plan was made before the Director's review was approved. Plan the shots again." };
+  if (b.storyHash && b.storyHash !== storyHash(story)) return { stale: true, reason: "The story changed after this plan was made." };
+  if (rec.bibleHash !== bibleHash(b)) return { stale: true, reason: "The Director's review changed after this plan was made. Plan the shots again." };
+  return { stale: false };
 }
 
 /** Can shots be planned from this bible for this story? Reasons are simple English. */
@@ -870,6 +1047,9 @@ const norm = (v: string) => foldText(v).replace(/[^\p{L}\p{N}]+/gu, "");
 export function matchCharacter(c: Pick<CastMember, "id" | "name">, b: StoryBible): BibleCharacter | null {
   const id = norm(c.id);
   const name = norm(c.name);
+  // "rahima_young" / "rahima_old": another age of a person the bible knows (the planner makes these for memories)
+  const variant = b.characters.find((ch) => ch.id.length >= 3 && c.id.toLowerCase().startsWith(`${ch.id.toLowerCase()}_`));
+  if (variant) return variant;
   for (const ch of b.characters) {
     if (norm(ch.id) === id && id) return ch;
     const names = [ch.name, ...ch.mentions].map(norm).filter(Boolean);

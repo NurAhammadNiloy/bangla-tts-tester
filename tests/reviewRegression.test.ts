@@ -112,7 +112,7 @@ describe("paraphrase, negation and missing evidence", () => {
   });
   it("a quote that drops the negation is contradicted", () => {
     const v = verifyClaim(STORY, { text: "Mizan calls her", source: "তিন বছর দেয়" });
-    expect(["contradicted", "verified"]).toContain(v.status); // a 3-word fragment is a real substring…
+    expect(["contradicted", "supported", "unverified"]).toContain(v.status); // a 3-word fragment is a real substring, but it does not show a phone call
     const flip = verifyClaim(STORY, { text: "x", source: "ও আপনারে ফোন দেয়? তিন বছর দেয় খালা" });
     expect(flip.status).toBe("contradicted"); // …but the sentence-level quote without না/নাই is not
   });
@@ -129,13 +129,13 @@ describe("খালি ঘরের ফ্যান — the eight reported claim
   it("none of the true events is unverified or contradicted", () => {
     for (const e of b.events) expect(["verified", "supported"], e.text).toContain(e.check?.status);
   });
-  it("quoted ones are verified with the story's real words", () => {
+  it("quoted ones are found in the story (supported: real words, meaning not yet confirmed by the cross-check)", () => {
     const by = (t: string) => b.events.find((e) => e.text.includes(t))!.check!;
-    expect(by("9 units")).toMatchObject({ status: "verified" });
-    expect(by("41 units")).toMatchObject({ status: "verified" }); // AI wrote উঠলো, story has উঠল
-    expect(by("16 units").status).toBe("verified");
-    expect(by("186 taka").status).toBe("verified");
-    expect(by("four months").status).toBe("verified"); // two pieces joined by "..."
+    expect(by("9 units")).toMatchObject({ status: "supported", quote: "exact" });
+    expect(by("41 units")).toMatchObject({ status: "supported" }); // AI wrote উঠলো, story has উঠল
+    expect(by("16 units").status).toBe("supported");
+    expect(by("186 taka").status).toBe("supported");
+    expect(by("four months").status).toBe("supported"); // two pieces joined by "..."
   });
   it("the report says how many need checking, never 'fixed'", () => {
     const r = summarize(b);
@@ -151,7 +151,7 @@ describe("Story Bible content", () => {
     expect(b.characters.map((c) => c.id)).toEqual(["rahima", "mizan", "narrator", "hamida"]);
     expect(b.relations.map((r) => [r.from, r.relation, r.to])).toContainEqual(["rahima", "mother of", "mizan"]);
     expect(b.relations.map((r) => [r.from, r.relation, r.to])).toContainEqual(["hamida", "mother of", "narrator"]);
-    expect(b.relations.every((r) => r.check?.status === "verified" || r.check?.status === "supported")).toBe(true);
+    expect(b.relations.every((r) => r.check?.status !== "contradicted")).toBe(true); // "not related" is a negative claim code cannot prove: it stays unverified until the cross-check or the author decides
   });
   it("places keep their kind: the locked room is a room of Rahima's home", () => {
     const room = b.places.find((p) => p.id === "locked_room")!;
@@ -160,7 +160,7 @@ describe("Story Bible content", () => {
   it("key scenes are not capped and keep their fields", () => {
     expect(b.keyMoments.length).toBe(10);
     expect(b.keyMoments[1]).toMatchObject({ visible: [], restrictions: ["nobody inside the room"] });
-    expect(b.keyMoments.every((m) => m.check?.status !== "unverified")).toBe(true);
+    expect(b.keyMoments.every((m) => m.check?.status !== "contradicted")).toBe(true);
   });
   it("key lines are fixed to the story's exact words and that is reported as a correction", () => {
     const l = b.keyLines.find((x) => x.speaker === "mizan")!;
@@ -231,7 +231,7 @@ describe("persistence, revisions and approvals", () => {
     const b = approveAll(gated());
     const back = normalizeBible(JSON.parse(JSON.stringify(b)));
     expect(back.storyHash).toBe(storyHash(STORY));
-    expect(back.events[0].check?.status).toBe("verified");
+    expect(back.events[0].check?.status).toBe("supported");
     expect(SECTIONS.every((s) => isApproved(back, s))).toBe(true);
     expect(bibleHash(back)).toBe(bibleHash(b));
   });
@@ -334,7 +334,8 @@ describe("synthetic stories", () => {
   it("flashback: a quote from the past part is still found with its offsets", () => {
     const st = "আজ সে একা। দশ বছর আগে, এই উঠোনে বাবা তাকে সাইকেল চালানো শিখিয়েছিলেন। এখন উঠোনে ঘাস।";
     const v = verifyClaim(st, { text: "Ten years ago his father taught him to ride", source: "দশ বছর আগে, এই উঠোনে বাবা তাকে সাইকেল চালানো শিখিয়েছিলেন" });
-    expect(v.status).toBe("verified");
+    expect(v.status).toBe("supported");
+    expect(v.quote).toBe("exact");
     expect(numbersIn(st)).toContain(10);
   });
   it("negation: 'he came back' against 'he never came back' is contradicted", () => {
@@ -424,7 +425,7 @@ describe("/api/bible end to end (mock OpenRouter)", () => {
     expect(j.verifyModel).toBe("google/gemini-3-flash");
     // Exact-quote facts can never be weakened by the cross-check.
     const b = normalizeBible(j.bible);
-    expect(b.events.find((e) => e.text.includes("41 units"))!.check!.status).toBe("verified");
+    expect(["supported", "verified"]).toContain(b.events.find((e) => e.text.includes("41 units"))!.check!.status);
     expect(j.report.unverified).toBeGreaterThan(0); // "not_found" answers are reported honestly
   });
 });
@@ -443,7 +444,7 @@ describe("approval check survives the trip to the server", () => {
     const v1 = { version: 1, message: "m", characters: [{ id: "r", name: "রহিমা", mentions: ["রহিমা বেগম"], relation: "", look: "", facts: [] }], places: [], events: [{ kind: "confirmed", text: "41 units", source: "একচল্লিশ ইউনিট" }], keyLines: [], keyNumbers: [], keyMoments: [], ending: "", pacing: "", prohibited: [] };
     const up = loadBible(v1, STORY);
     expect(up.version).toBe(2);
-    expect(up.events[0].check?.status).toBe("verified");
+    expect(up.events[0].check?.status).toBe("supported");
     expect(up.finalLine).toBe("এমনি।");
   });
 });

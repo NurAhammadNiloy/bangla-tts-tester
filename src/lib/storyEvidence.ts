@@ -12,6 +12,7 @@
  * Every span is an offset into the exact story string the caller passed, so the UI can
  * highlight it. Nothing here ever writes story text that is not in the story.
  */
+import { enNegative, LEXICON, type Alias } from "@/lib/lexicon";
 
 export type VerifyStatus = "verified" | "supported" | "unverified" | "contradicted";
 export type VerifyMethod = "exact_quote" | "near_quote" | "cited" | "semantic" | "user" | "none";
@@ -23,14 +24,25 @@ export interface Span {
   sentence: string;
 }
 
+/** Is the AI's quote really in the story? (authenticity, not meaning) */
+export type QuoteStatus = "exact" | "near" | "fabricated" | "none";
+/** Does the passage back the claim's meaning? */
+export type Support = "literal" | "confirmed" | "likely" | "unchecked" | "doubtful" | "unrelated" | "absent" | "contradicted";
+
 export interface Verification {
   status: VerifyStatus;
+  /** Quote authenticity, separate from meaning. */
+  quote?: QuoteStatus;
+  /** How the meaning was judged. */
+  support?: Support;
   method: VerifyMethod;
   evidence: Span[];
   /** Simple English: why this status. */
   reason: string;
   /** What to change, when the checker has a safe suggestion. */
   suggestion?: string;
+  /** Hash of the text this check was made for (stale when the text changes). */
+  for?: string;
 }
 
 export interface Sentence {
@@ -298,6 +310,13 @@ export interface ClaimInput {
   evidence?: string[];
 }
 
+export interface VerifyOptions {
+  /** Extra anchors, e.g. the bible's people ({en:["mizan"], bn:["মিজান"]}). */
+  aliases?: Alias[];
+  /** The claim IS the quote (an exact line or number): a real quote proves it. */
+  literal?: boolean;
+}
+
 function mergeSpans(spans: Span[]): Span[] {
   const sorted = [...spans].sort((a, b) => a.start - b.start);
   const out: Span[] = [];
@@ -323,43 +342,119 @@ export function citedSpans(story: string, ids: string[] | undefined): Span[] {
 }
 
 const spanText = (story: string, spans: Span[]) => spans.map((s) => story.slice(s.start, s.end)).join(" ");
-const sentenceText = (story: string, spans: Span[]) =>
-  [...new Set(spans.map((s) => s.sentence))]
-    .map((id) => splitSentences(story).find((x) => x.id === id)?.text ?? "")
-    .join(" ");
+const evidenceSentences = (story: string, spans: Span[]) => {
+  const ids = new Set(spans.map((s) => s.sentence));
+  return splitSentences(story).filter((x) => ids.has(x.id));
+};
+
+/* -------------------------------- anchors -------------------------------- */
+
+const enRe = new Map<string, RegExp>();
+function enHas(text: string, term: string): boolean {
+  let re = enRe.get(term);
+  if (!re) {
+    const esc = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/[\s-]+/g, "[\\s-]+");
+    re = new RegExp(`(^|[^a-z])${esc}(s|es|ed|ing|'s)?(?![a-z])`, "i");
+    enRe.set(term, re);
+  }
+  return re.test(text);
+}
+
+/** Does this Bangla text mention any of the forms? Whole words; 3+ letter forms also as a word start. */
+export function bnHas(text: string, forms: string[]): boolean {
+  const hay = ` ${looseText(text)} `;
+  const toks = hay.split(" ").filter(Boolean);
+  return forms
+    .map(looseText)
+    .filter(Boolean)
+    .some((f) => (f.includes(" ") ? hay.includes(` ${f} `) || hay.includes(` ${f}`) : toks.some((tk) => tk === f || (f.length >= 3 && tk.startsWith(f)))));
+}
+
+interface Anchor {
+  alias: Alias;
+  term: string;
+}
+
+/** The checkable words of an English claim. Longer terms win ("hand fan" over "fan"). */
+function anchorsOf(text: string, aliases: Alias[]): Anchor[] {
+  const found: Anchor[] = [];
+  const all = aliases.flatMap((alias) => alias.en.filter(Boolean).map((term) => ({ alias, term: term.toLowerCase() })));
+  all.sort((a, b) => b.term.length - a.term.length);
+  let rest = ` ${text.toLowerCase()} `;
+  for (const a of all) {
+    if (!enHas(rest, a.term)) continue;
+    if (!found.some((f) => f.alias === a.alias)) found.push(a);
+    rest = rest.replace(new RegExp(a.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " ");
+  }
+  return found;
+}
+
+/** Bangla negation in a sentence (নয় before a unit or number word is "nine", not "is not"). */
+function bnNegative(text: string): boolean {
+  const toks = looseText(text).split(" ").filter(Boolean);
+  return toks.some((tk, i) => {
+    if (tk === looseText("নয়") && (BN_UNITS.has(toks[i + 1] ?? "") || bnWord(toks[i + 1] ?? "") !== undefined)) return false;
+    if (NEG_WORDS.has(tk)) return true;
+    // verb + নি ("আসেনি", "দেয়নি", "করিনি"), not words like "জানি" or "পানি"
+    if (!tk.endsWith(NEG_SUFFIX) || tk.length < NEG_SUFFIX.length + 2) return false;
+    const stemEnd = tk[tk.length - NEG_SUFFIX.length - 1];
+    return stemEnd === "\u09C7" || stemEnd === "\u09BF" || stemEnd === "\u09BC";
+  });
+}
+
+/* ------------------------------ verification ------------------------------ */
+
+const fail = (status: VerifyStatus, support: Support, quote: QuoteStatus, method: VerifyMethod, evidence: Span[], reason: string, suggestion?: string): Verification => ({
+  status,
+  support,
+  quote,
+  method,
+  evidence,
+  reason,
+  ...(suggestion ? { suggestion } : {}),
+});
 
 /**
  * Check one claim against the story. Never throws, never returns text that is not in the story.
- * `verified`  = exact or near quote found (and its numbers agree);
- * `supported` = the AI cited real sentences, but code cannot prove an English paraphrase means them;
- * `unverified`= no real passage found;
- * `contradicted` = the story says something else (a number it never says, or the opposite negation).
+ *
+ * Two separate questions:
+ *  - quote:   is the AI's Bangla quote really in the story? (exact / near / fabricated / none)
+ *  - support: does the passage back the claim's MEANING? Code checks what it can check for sure:
+ *             numbers, places, negation and the claim's people/things (anchors). A real quote alone
+ *             never makes a claim "verified": that needs the AI cross-check (`confirmed`) or a
+ *             literal claim (an exact line or number).
+ *
+ * status = what the badge shows:
+ *  verified     – literal quote, or confirmed by the cross-check (and nothing code can check disagrees);
+ *  supported    – a real passage, names/numbers agree, meaning not confirmed word by word;
+ *  unverified   – no passage, the passage is about something else, or the story never mentions it;
+ *  contradicted – the story says otherwise (number, place, or a negation flip).
  */
-export function verifyClaim(story: string, claim: ClaimInput): Verification {
+export function verifyClaim(story: string, claim: ClaimInput, opts: VerifyOptions = {}): Verification {
   let spans: Span[] = [];
   let method: VerifyMethod = "none";
+  let quote: QuoteStatus = "none";
   let quoteNote = "";
   if (claim.source?.trim()) {
     const exact = exactSpans(story, claim.source);
     if (exact) {
       spans = exact;
       method = "exact_quote";
+      quote = "exact";
     } else {
       const near = nearSpans(story, claim.source);
       if (near?.negationFlip) {
-        return {
-          status: "contradicted",
-          method: "near_quote",
-          evidence: near.spans,
-          reason: "The quoted words are close to the story, but the story says the opposite (না / নি / নেই differs).",
-          suggestion: "Read the story passage and fix the claim.",
-        };
+        return fail("contradicted", "contradicted", "near", "near_quote", near.spans, "The quoted words are close to the story, but the story says the opposite (না / নি / নেই differs).", "Read the story passage and fix the claim.");
       }
       if (near) {
         spans = near.spans;
         method = "near_quote";
+        quote = "near";
         quoteNote = "The AI's quote was slightly different; the real story sentence is shown.";
-      } else quoteNote = "The AI's quote is not in the story.";
+      } else {
+        quote = "fabricated";
+        quoteNote = "The AI's quote is not in the story.";
+      }
     }
   }
   const cited = citedSpans(story, claim.evidence);
@@ -372,41 +467,81 @@ export function verifyClaim(story: string, claim: ClaimInput): Verification {
   // Numbers: every number in the claim must be in the evidence (or at least in the story).
   const claimNums = [...new Set(numbersIn(`${claim.text} ${claim.source ?? ""}`))];
   const storyNums = new Set(numbersIn(story));
-  const evNums = new Set(numbersIn(sentenceText(story, spans)));
+  const evNums = () => new Set(numbersIn(evidenceSentences(story, spans).map((x) => x.text).join(" ")));
   const notInStory = claimNums.filter((n) => !storyNums.has(n));
-  const notInEvidence = claimNums.filter((n) => storyNums.has(n) && !evNums.has(n));
   if (notInStory.length) {
-    const has = spans.length && evNums.size;
-    return {
-      status: has ? "contradicted" : "unverified",
-      method,
-      evidence: spans,
-      reason: has
-        ? `The story never says ${notInStory.join(", ")}; this passage says ${[...evNums].join(", ")}.`
-        : `The story never says ${notInStory.join(", ")}.`,
-      suggestion: has ? `Use the number from the story (${[...evNums].join(", ")}).` : "Remove or fix this number.",
-    };
+    const ev = evNums();
+    const has = spans.length && ev.size;
+    return has
+      ? fail("contradicted", "contradicted", quote, method, spans, `The story never says ${notInStory.join(", ")}; this passage says ${[...ev].join(", ")}.`, `Use the number from the story (${[...ev].join(", ")}).`)
+      : fail("unverified", "absent", quote, method, spans, `The story never says ${notInStory.join(", ")}.`, "Remove or fix this number.");
   }
-  if (notInEvidence.length) {
-    // Add the sentences that do say the missing numbers, so the evidence is complete.
-    for (const n of notInEvidence) {
-      const s = splitSentences(story).find((x) => numbersIn(x.text).includes(n));
-      if (s) spans.push({ start: s.start, end: s.end, sentence: s.id });
-    }
-    spans = mergeSpans(spans);
+  for (const n of claimNums.filter((x) => !evNums().has(x))) {
+    // Add the sentence that does say the missing number, so the evidence is complete.
+    const s = splitSentences(story).find((x) => numbersIn(x.text).includes(n));
+    if (s) spans = mergeSpans([...spans, { start: s.start, end: s.end, sentence: s.id }]);
   }
 
-  if (!spans.length) return { status: "unverified", method: "none", evidence: [], reason: quoteNote || NO_PASSAGE };
-  if (method === "exact_quote" || method === "near_quote") {
-    return { status: "verified", method, evidence: spans, reason: quoteNote || "The quoted words are in the story." };
+  if (!spans.length) return fail("unverified", "absent", quote, "none", [], quoteNote || NO_PASSAGE);
+  if (opts.literal && quote === "exact") return fail("verified", "literal", quote, method, spans, "These exact words are in the story.");
+
+  // Anchors: the claim's people, places and things should be in the passage it relies on.
+  const ev = evidenceSentences(story, spans);
+  const evText = ev.map((x) => x.text).join(" ");
+  const anchors = anchorsOf(claim.text, [...(opts.aliases ?? []), ...LEXICON]);
+  // People are only ever supportive: a passage often says "he" / "she" / "মা" for a named person.
+  const inEv = anchors.filter((a) => bnHas(evText, a.alias.bn));
+  const strong = anchors.filter((a) => a.alias.kind !== "person");
+  const inStoryOnly = strong.filter((a) => !inEv.includes(a) && bnHas(story, a.alias.bn));
+  const absent = strong.filter((a) => !inEv.includes(a) && !inStoryOnly.includes(a));
+  const place = (a: Anchor) => a.alias.kind === "place";
+  const evPlaces = LEXICON.filter((l) => l.kind === "place" && bnHas(evText, l.bn));
+  const missingPlace = absent.find(place) ?? inStoryOnly.find(place);
+  if (missingPlace && evPlaces.length && !inEv.some(place)) {
+    return fail("contradicted", "contradicted", quote, method, spans, `The claim says “${missingPlace.term}”, but this passage says ${evPlaces.map((p) => p.bn[0]).join(", ")}.`, "Use the place the story names.");
   }
+  if (absent.length) {
+    return fail("unverified", "absent", quote, method, spans, `${quoteNote ? `${quoteNote} ` : ""}The story never mentions “${absent.map((a) => a.term).join("”, “")}”.`, "Remove this detail or mark it as your own creative choice.");
+  }
+  if (strong.length && !inEv.some((a) => a.alias.kind !== "person")) {
+    return fail("unverified", "unrelated", quote, method, spans, `${quoteNote ? `${quoteNote} ` : ""}The passage is real, but it does not mention “${strong.map((a) => a.term).join("”, “")}”, so it does not show this claim.`);
+  }
+  const claimNeg = enNegative(claim.text);
+  const anchorSents = inEv.length ? ev.filter((x) => inEv.some((a) => bnHas(x.text, a.alias.bn))) : ev;
+  const evNeg = anchorSents.length > 0 && anchorSents.every((x) => bnNegative(x.text));
+  const evAnyNeg = anchorSents.some((x) => bnNegative(x.text));
+  if ((claimNeg && !evAnyNeg) || (!claimNeg && evNeg)) {
+    return fail(
+      "unverified",
+      "doubtful",
+      quote,
+      method,
+      spans,
+      claimNeg ? "The claim is negative (not / never / nobody), but the passage is not. Check the meaning." : "The passage is negative (না / নি / নেই), but the claim is not. Check the meaning.",
+    );
+  }
+  const capNote = quote === "fabricated" ? `${quoteNote} ` : quoteNote ? `${quoteNote} ` : "";
+  if (inEv.length) {
+    return fail("supported", "likely", quote, method, spans, `${capNote}The passage mentions ${inEv.map((a) => `“${a.term}”`).join(", ")}${claimNums.length ? " and the same numbers" : ""}; the full meaning was not checked word by word.`);
+  }
+  return fail("supported", "unchecked", quote, method, spans, `${capNote}The AI points to this real passage; code found nothing to check in the claim, so its meaning was not checked.`);
+}
+
+/** The cross-check said "supported": upgrade, unless something code can check disagrees. */
+export function confirmClaim(story: string, claim: ClaimInput, aiIds: string[], reason: string, opts: VerifyOptions = {}): Verification {
+  const again = verifyClaim(story, { ...claim, evidence: [...(claim.evidence ?? []), ...aiIds] }, opts);
+  if (again.support === "contradicted" || again.support === "absent") return again;
+  if (!citedSpans(story, aiIds).length) return again;
+  const fabricated = again.quote === "fabricated";
   return {
-    status: "supported",
-    method,
-    evidence: spans,
-    reason: `${quoteNote ? `${quoteNote} ` : ""}The AI points to these story sentences; the meaning was not checked word by word.`,
+    ...again,
+    status: fabricated ? "supported" : "verified",
+    support: "confirmed",
+    method: "semantic",
+    reason: `${fabricated ? "The AI's own quote is not in the story, but " : ""}${reason || "An AI cross-check read these sentences and found they say it."}`,
   };
 }
+
 
 /** The story's last sentence, exactly as written (e.g. "এমনি।"). */
 export function lastSentence(story: string): Sentence | undefined {

@@ -73,8 +73,10 @@ export const AI = () => ({
   final_line: "এমনি",
   pacing: "slow, long silences after the key lines",
   prohibited: [
-    { kind: "prohibited_change", text: "The narrator never tells Mizan about Rahima's cataracts", source: "শুধু ছানির কথাটা বললাম না।", evidence: [S("শুধু ছানির কথাটা")] },
-    { kind: "prohibited_change", text: "Mizan never physically returns home or meets Rahima in person", source: "", evidence: [] },
+    { kind: "prohibited_change", text: "The narrator never tells Mizan about Rahima's cataracts", source: "শুধু ছানির কথাটা বললাম না।", evidence: [S("শুধু ছানির কথাটা")], rule: { type: "never_says", who: "", other: "", place: "", terms: ["ছানি", "cataract"], when_present: ["mizan"] } },
+    { kind: "prohibited_change", text: "Mizan never physically returns home", source: "", evidence: [], rule: { type: "never_present", who: "mizan", other: "", place: "", terms: [], when_present: [] } },
+    { kind: "prohibited_change", text: "Mizan and Rahima never meet in person", source: "", evidence: [], rule: { type: "never_together", who: "mizan", other: "rahima", place: "", terms: [], when_present: [] } },
+    { kind: "prohibited_change", text: "No physical reunion is shown, only video calls", source: "", evidence: [], rule: { type: "none", who: "", other: "", place: "", terms: [], when_present: [] } },
   ],
 });
 

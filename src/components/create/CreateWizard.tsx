@@ -18,10 +18,11 @@ import { pickDefaultSpeechModel, STYLE_PRESETS, tagFamilyFor } from "@/lib/voice
 import type { AssetLibrary, EpisodePlan } from "@/lib/puppet/types";
 import { createShotDrawer } from "@/lib/puppet/engine";
 import { autoDirect } from "@/lib/puppet/autoDirect";
-import { storyHash } from "@/lib/storyEvidence";
 import { SAMPLE_STORY, SAMPLE_STORY_GENRE } from "@/lib/sampleStory";
 import DirectorReview from "@/components/create/DirectorReview";
-import { applyHardRules, bibleHash, bibleReady, loadBible, mergeSection, revise, type BibleSection, type GateReport, type StoryBible } from "@/lib/storyBible";
+import { bibleHash, bibleReady, loadBible, mergeSection, planFreshness, revise, type BibleSection, type GateReport, type StoryBible } from "@/lib/storyBible";
+import { mergeReports, repairPlan, validatePlan, type ValidationReport } from "@/lib/storyValidator";
+import PlanReport from "@/components/create/PlanReport";
 import { estimateEpisode, layoutEpisode } from "@/lib/pipeline/layout";
 import { castVoices, voiceCacheKey, voiceForShot } from "@/lib/pipeline/voices";
 import {
@@ -126,11 +127,20 @@ export default function CreateWizard() {
   const acRef = useRef<AudioContext | null>(null);
   const lib = useMemo(() => mergeLibrary(library), [library]);
   const [planWarnings, setPlanWarnings] = useState<string[]>([]);
-  // autoDirect stages the shots; the bible's hard rules run after it so it can never break them.
-  const directed = useMemo(() => (plan ? applyHardRules(autoDirect(plan, lib), bible?.approvedAt ? bible : null) : null), [plan, lib, bible]);
+  // autoDirect stages the shots. The story rules are checked on its result too, and a plan that breaks a hard rule
+  // never reaches the paid steps (nothing is deleted to make it pass).
+  const directed = useMemo(() => (plan ? autoDirect(plan, lib) : null), [plan, lib]);
+  const checkPlan = useCallback(
+    (p: EpisodePlan, b: StoryBible | null): ValidationReport | null =>
+      b?.approvedAt && outline ? validatePlan(p, b, { partIndex, partText: partText(outline, outline.parts[partIndex] ?? outline.parts[0]), isLast: partIndex === outline.parts.length - 1 }) : null,
+    [outline, partIndex],
+  );
+  const planReport = useMemo(() => (directed ? checkPlan(directed, bible) : null), [directed, bible, checkPlan]);
+  const [blockedPlan, setBlockedPlan] = useState<{ plan: EpisodePlan; warnings: string[]; report: ValidationReport; repairs: string[] } | null>(null);
   const epRecord = project?.episodes.find((e) => e.index === partIndex);
-  const planStale =
-    !!plan && !!bible?.approvedAt && ((!!epRecord?.bibleHash && epRecord.bibleHash !== bibleHash(bible)) || (!!bible.storyHash && bible.storyHash !== storyHash(story)));
+  const freshness = planFreshness(epRecord, bible?.approvedAt ? bible : null, story);
+  const planStale = !!plan && freshness.stale;
+  const planBlocked = !!planReport && !planReport.ok;
 
   /* ------------------------------ load / save ------------------------------ */
 
@@ -346,6 +356,46 @@ export default function CreateWizard() {
     await directIt(approved);
   }
 
+  async function buildFrom(p0: EpisodePlan, pw: string[], approvedBible: StoryBible | null, key: string, ctl: AbortController) {
+    setBusy("Drawing the new characters and places for your story…");
+    const { made, failed } = await buildAssets(p0, lib, key, (t) => setBusy(t), ctl.signal);
+    const nextLib: Partial<AssetLibrary> = {
+      characters: { ...(library.characters ?? {}), ...(made.characters ?? {}) },
+      places: { ...(library.places ?? {}), ...(made.places ?? {}) },
+      props: { ...(library.props ?? {}), ...(made.props ?? {}) },
+    };
+    const p = finalizePlan(p0, mergeLibrary(nextLib));
+    setLibrary(nextLib);
+    setPlan(p);
+    setPlanWarnings(pw);
+    await save({ library: nextLib as ProjectRecord["library"], episodePlan: p, status: "planned", planBibleHash: approvedBible ? bibleHash(approvedBible) : "" });
+    if (failed.length) setError(`${failed.length} small item${failed.length > 1 ? "s" : ""} could not be drawn, so ready-made ones are used instead. You can make the video as it is.`);
+    setStep("check");
+  }
+
+  async function continueBlocked() {
+    if (!blockedPlan?.report.ok) return;
+    const key = getKey()!;
+    const ctl = new AbortController();
+    abortRef.current = ctl;
+    try {
+      await buildFrom(blockedPlan.plan, [...blockedPlan.warnings, ...blockedPlan.repairs], bible, key, ctl);
+      setBlockedPlan(null);
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /** Only when the user asks: removes what the Story Bible does not allow and lists every change. */
+  function repairBlocked() {
+    if (!blockedPlan || !bible) return;
+    const r = repairPlan(blockedPlan.plan, bible);
+    const rep = mergeReports(checkPlan(r.plan, bible), checkPlan(autoDirect(r.plan, mergeLibrary(library)), bible));
+    if (rep) setBlockedPlan({ ...blockedPlan, plan: r.plan, report: rep, repairs: [...blockedPlan.repairs, ...r.changes] });
+  }
+
   async function directIt(approvedBible: StoryBible | null = bible) {
     if (!outline) return;
     setError(null);
@@ -363,22 +413,19 @@ export default function CreateWizard() {
     abortRef.current = ctl;
     try {
       setBusy(`Directing part ${partIndex + 1}: shots, camera, screens… (about 1 minute)`);
+      setBlockedPlan(null);
       const prevEp = project?.episodes.find((e) => e.index === partIndex - 1)?.plan ?? null;
-      const { plan: p0, warnings: pw } = await planEpisode(outline, partIndex, lib, key, { narrator, previous: prevEp, bible: approvedBible, fast: !!approvedBible && fastPlanner, signal: ctl.signal });
-      setBusy("Drawing the new characters and places for your story…");
-      const { made, failed } = await buildAssets(p0, lib, key, (t) => setBusy(t), ctl.signal);
-      const nextLib: Partial<AssetLibrary> = {
-        characters: { ...(library.characters ?? {}), ...(made.characters ?? {}) },
-        places: { ...(library.places ?? {}), ...(made.places ?? {}) },
-        props: { ...(library.props ?? {}), ...(made.props ?? {}) },
-      };
-      const p = finalizePlan(p0, mergeLibrary(nextLib));
-      setLibrary(nextLib);
-      setPlan(p);
-      setPlanWarnings(pw);
-      await save({ library: nextLib as ProjectRecord["library"], episodePlan: p, status: "planned", planBibleHash: approvedBible ? bibleHash(approvedBible) : "" });
-      if (failed.length) setError(`${failed.length} small item${failed.length > 1 ? "s" : ""} could not be drawn, so ready-made ones are used instead. You can make the video as it is.`);
-      setStep("check");
+      const { plan: p0, warnings: pw } = await planEpisode(outline, partIndex, lib, key, { narrator, previous: prevEp, bible: approvedBible, story, fast: !!approvedBible && fastPlanner, signal: ctl.signal });
+      // The story rules are checked on the planner's answer and again on what autoDirect makes of it,
+      // BEFORE anything is drawn or voiced (those steps cost money).
+      const rep = approvedBible ? mergeReports(checkPlan(p0, approvedBible), checkPlan(autoDirect(p0, mergeLibrary(library)), approvedBible)) : null;
+      if (rep && !rep.ok) {
+        setPlan(null);
+        setBlockedPlan({ plan: p0, warnings: pw, report: rep, repairs: [] });
+        setStep("check");
+        return;
+      }
+      await buildFrom(p0, pw, approvedBible, key, ctl);
     } catch (e) {
       if ((e as Error).name !== "AbortError") setError((e as Error).message);
     } finally {
@@ -389,6 +436,17 @@ export default function CreateWizard() {
   async function makeIt() {
     if (!plan) return;
     setError(null);
+    // The last gate before paid steps (voices, music): stale plan, outdated review or a broken story rule.
+    const fresh = planFreshness(epRecord, bible?.approvedAt ? bible : null, story);
+    if (fresh.stale) {
+      setError(fresh.reason ?? "This plan is out of date. Plan the shots again.");
+      return;
+    }
+    const gate = bible?.approvedAt ? checkPlan(autoDirect(plan, lib), bible) : null;
+    if (gate && !gate.ok) {
+      setError(`The shot plan breaks ${gate.hard.length} rule${gate.hard.length > 1 ? "s" : ""} of your approved review. Fix them first (see "Story check of this plan").`);
+      return;
+    }
     setVideo(null);
     const key = getKey()!;
     const ctl = new AbortController();
@@ -432,7 +490,7 @@ export default function CreateWizard() {
       mark(0, { state: "done", detail: undefined });
       mark(1, { state: "run" });
       // screenplay pass (nobody missing, no repeated pictures), then the bible's hard rules again
-      const shotPlan = applyHardRules(autoDirect(plan, lib), bible?.approvedAt ? bible : null);
+      const shotPlan = autoDirect(plan, lib);
       const layout = layoutEpisode(shotPlan, shotVoices.map((v) => v.timing));
       const soundtrack = await mixEpisode(shotPlan, layout, shotVoices, { music });
       mark(1, { state: "done" });
@@ -516,6 +574,7 @@ export default function CreateWizard() {
   const card = "rounded-2xl border border-line bg-surface p-4 sm:p-5";
   const primary =
     "w-full rounded-xl bg-accent px-5 py-3.5 text-base font-bold text-accent-ink shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50";
+  const secondary = "rounded-xl border border-line bg-surface px-4 py-2.5 text-sm font-semibold hover:border-accent disabled:cursor-not-allowed disabled:opacity-50";
   const chip = (on: boolean) =>
     `rounded-full border px-3.5 py-2 text-sm font-semibold transition ${on ? "border-accent bg-accent text-accent-ink" : "border-line bg-surface text-ink hover:border-accent"}`;
 
@@ -715,27 +774,80 @@ export default function CreateWizard() {
         />
       )}
 
+      {step === "check" && !plan && blockedPlan && (
+        <section className={card} aria-labelledby="blocked-title">
+          <h1 id="blocked-title" className="font-display text-xl font-extrabold">
+            The plan breaks your approved review
+          </h1>
+          <p className="mt-1 text-sm text-muted">Nothing was drawn or voiced, and nothing was paid for. Fix the blocking problems first.</p>
+          <div className="mt-3">
+            <PlanReport report={blockedPlan.report} story={story} />
+          </div>
+          {blockedPlan.repairs.length > 0 && (
+            <div className="mt-3 rounded-xl border border-line bg-surface-2 p-3 text-xs">
+              <p className="font-semibold">What “Fix for me” changed:</p>
+              <ul className="mt-1 list-disc pl-5">
+                {blockedPlan.repairs.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button className={secondary} disabled={!!busy} onClick={repairBlocked}>
+              Fix for me
+              <Info title="Fix for me">Removes only people the Story Bible does not know and people drawn in an empty place, and lists every change above. It never touches your key lines, key scenes or the ending.</Info>
+            </button>
+            <button className={secondary} disabled={!!busy} onClick={() => withKey(() => void directIt())}>
+              Plan the shots again
+            </button>
+            <button className={secondary} onClick={() => setStep("review")}>
+              Back to the review
+            </button>
+            {blockedPlan.report.ok && (
+              <button className={primary} disabled={!!busy} onClick={() => withKey(() => void continueBlocked())}>
+                Draw the new characters and places
+                <Info title="Draw characters and places">The blocking problems are gone. This step draws the new people and places (a few cents).</Info>
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+
       {step === "check" && plan && (
         <section className={card}>
           <h1 className="font-display text-xl font-extrabold">{plan.title}</h1>
           <p className="mt-1 text-sm text-muted">Check the scenes. Change any line if you like, then make the video.</p>
           {planStale && (
             <p role="alert" className="mt-3 rounded-xl border border-bad/40 bg-bad/10 px-3 py-2 text-sm text-bad">
-              This shot plan was made from an older version of the Director&apos;s review. Go back to the review and plan the shots again before making the video.
+              {freshness.reason ?? "This shot plan is out of date."} Go back to the review and plan the shots again before making the video.
             </p>
           )}
+          {planReport && (planReport.hard.length > 0 || planReport.soft.length > 0 || planReport.review.length > 0) && (
+            <div className="mt-3 rounded-xl border border-line bg-surface-2 p-3 text-sm">
+              <p className="font-semibold">
+                Story check of this plan
+                <Info title="Story check">
+                  Plain code compared every shot with your approved review. Blocking = breaks something you fixed (an empty room that is not empty, a secret told, a missing key line or scene, the wrong speaker, the ending line). Nothing is paid for until blocking problems are gone. Warnings and “check by eye” never stop you.
+                </Info>
+              </p>
+              <PlanReport report={planReport} story={story} />
+            </div>
+          )}
           {planWarnings.length > 0 && (
-            <details className="mt-3 rounded-xl border border-line bg-surface-2 p-3 text-sm">
-              <summary className="cursor-pointer font-semibold">
-                Story check of this plan: {planWarnings.length} note{planWarnings.length > 1 ? "s" : ""}
-                <Info title="Story check">Plain code compared the shots with your approved review: missing key scenes, lines given to the wrong person, numbers left out, people removed from empty places.</Info>
-              </summary>
-              <ul className="mt-2 list-disc space-y-1 pl-5 text-muted">
+            <details className="mt-3 rounded-xl border border-line bg-surface-2 p-3 text-xs text-muted">
+              <summary className="cursor-pointer font-semibold">Other notes: {planWarnings.length}</summary>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
                 {planWarnings.map((w, i) => (
                   <li key={i}>{w}</li>
                 ))}
               </ul>
             </details>
+          )}
+          {planBlocked && (
+            <p role="alert" className="mt-3 rounded-xl border border-bad/40 bg-bad/10 px-3 py-2 text-sm font-semibold text-bad">
+              The video is locked: this plan breaks {planReport!.hard.length} rule{planReport!.hard.length > 1 ? "s" : ""} of your approved review. Go back to the review and plan the shots again, or change the rule yourself if it is a deliberate creative change.
+            </p>
           )}
 
           <div className="mt-4 flex gap-3 overflow-x-auto pb-2" aria-label="Cast">
@@ -786,7 +898,7 @@ export default function CreateWizard() {
               {Math.ceil(estimate.seconds / 60) + 2} min to make
             </p>
           )}
-          <button className={`${primary} mt-5`} disabled={!!busy || planStale} onClick={() => withKey(makeIt)}>
+          <button className={`${primary} mt-5`} disabled={!!busy || planStale || planBlocked} onClick={() => withKey(makeIt)}>
             🎬 ভিডিও বানান · Make the video
           </button>
           <button className="mt-3 w-full text-sm font-semibold text-muted underline" onClick={() => withKey(directIt)}>
