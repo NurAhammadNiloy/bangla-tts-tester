@@ -4,6 +4,7 @@
  * stored separately by key so project records stay small.
  */
 import type { Genre, StoryPlan } from "@/lib/storyPlan";
+import type { GateReport, StoryBible } from "@/lib/storyBible";
 import type { EpisodePlan, CharacterAsset, PlaceAsset, PropAsset } from "@/lib/puppet/types";
 
 export type VideoStyle = "puppet" | "cinematic" | "explainer";
@@ -30,6 +31,9 @@ export interface ProjectRecord {
   /** Series outline from the Story Editor (parts with hooks). */
   outline?: StoryPlan;
   episodes: EpisodeRecord[];
+  /** Story Bible (the approved truth about the story) and the accuracy report it passed. */
+  bible?: StoryBible;
+  bibleReport?: GateReport;
   /** Assets the asset maker built for this series (reused across episodes). */
   library?: {
     characters: Record<string, CharacterAsset>;

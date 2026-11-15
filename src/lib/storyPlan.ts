@@ -408,6 +408,25 @@ export const PLANNER_PREFERENCES: RegExp[] = [
   /^openai\/gpt-[\d.]+$/,
 ];
 
+/** Cheaper, faster planner for shot lists (picked from the LIVE model list; never hard-coded). */
+export const FAST_PLANNER_PREFERENCES: RegExp[] = [/^google\/gemini-[\d.]+-flash(-preview)?$/];
+
+export function pickFastPlannerModel(
+  models: { id: string; supported_parameters?: string[]; architecture?: { output_modalities?: string[] } }[],
+): string | null {
+  const ok = models.filter((m) => {
+    const out = m.architecture?.output_modalities ?? ["text"];
+    const structured =
+      !m.supported_parameters || m.supported_parameters.includes("structured_outputs") || m.supported_parameters.includes("response_format");
+    return out.length === 1 && out[0] === "text" && structured && !/tts|image|audio|embed|lite/i.test(m.id);
+  });
+  for (const re of FAST_PLANNER_PREFERENCES) {
+    const hits = ok.filter((m) => re.test(m.id)).map((m) => m.id).sort().reverse();
+    if (hits.length) return hits[0];
+  }
+  return null;
+}
+
 export function pickPlannerModel(
   models: { id: string; supported_parameters?: string[]; architecture?: { output_modalities?: string[] } }[],
 ): string | null {

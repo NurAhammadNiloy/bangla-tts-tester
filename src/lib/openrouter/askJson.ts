@@ -5,7 +5,7 @@
  */
 import { chatComplete, listTextModels } from "@/lib/openrouter/client";
 import { OpenRouterError } from "@/lib/openrouter/errors";
-import { pickPlannerModel } from "@/lib/storyPlan";
+import { pickFastPlannerModel, pickPlannerModel } from "@/lib/storyPlan";
 
 /** The model answered, but not with a JSON object we can read. Routes map this to 422. */
 export class JsonReplyError extends Error {
@@ -92,6 +92,17 @@ export async function cachedPlannerModel(): Promise<string | null> {
   return plannerCache.model;
 }
 
+let fastCache: { at: number; model: string | null } | null = null;
+
+/** Cheaper model for shot planning, from the live model list; null when none is available. */
+export async function cachedFastPlannerModel(): Promise<string | null> {
+  if (!fastCache || Date.now() - fastCache.at > 30 * 60_000) {
+    fastCache = { at: Date.now(), model: pickFastPlannerModel(await listTextModels()) };
+  }
+  return fastCache.model;
+}
+
 export function _resetPlannerCache() {
   plannerCache = null;
+  fastCache = null;
 }

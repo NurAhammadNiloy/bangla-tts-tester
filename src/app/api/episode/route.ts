@@ -7,17 +7,20 @@ import {
   parsePreviousPlaces,
   type EpisodeContext,
 } from "@/lib/episodePlan";
-import { askJson, cachedPlannerModel, JsonReplyError } from "@/lib/openrouter/askJson";
+import { askJson, cachedFastPlannerModel, cachedPlannerModel, JsonReplyError } from "@/lib/openrouter/askJson";
 import { OpenRouterError } from "@/lib/openrouter/errors";
 import { GENRES, MAX_STORY_CHARS, type Genre } from "@/lib/storyPlan";
 import type { EpisodePlan } from "@/lib/puppet/types";
+import { enforceBible, normalizeBible } from "@/lib/storyBible";
 
 export const maxDuration = 300;
 
 /**
  * POST /api/episode
  *  { text, genre, partTitle, partIndex (0-based), partsTotal, hook, isLast, characters, setting,
- *    librarySummary, previousCast?, previousPlaces?, narrator, series? }
+ *    librarySummary, previousCast?, previousPlaces?, narrator, series?, bible?, fast? }
+ *  `bible` = the approved Story Bible (obeyed as truth; cast outside it is removed afterwards).
+ *  `fast` = true: plan with a cheaper model first, fall back to the strong model if its answer is unusable.
  *  → { plan: EpisodePlan, model, warnings: string[] }
  */
 export async function POST(req: Request) {
@@ -51,34 +54,58 @@ export async function POST(req: Request) {
     previousPlaces: parsePreviousPlaces(b.previousPlaces, genre),
     narrator: b.narrator === "male" ? "male" : "female",
     series: s(b.series, 60) || undefined,
+    bible: b.bible && typeof b.bible === "object" ? normalizeBible(b.bible) : undefined,
   };
+  const fast = b.fast === true;
 
   try {
-    const model = await cachedPlannerModel();
-    if (!model) return Response.json({ error: "No suitable planning model found on OpenRouter right now." }, { status: 503 });
-    const ask = (extra: string, maxTokens: number) =>
-      askJson({
-        apiKey: g.key,
-        model,
-        system: buildEpisodePrompt(ctx),
-        user: `PART TEXT (Bangla):\n${text}${extra}`,
-        name: "episode_plan",
-        schema: EPISODE_SCHEMA,
-        maxTokens,
-        timeoutMs: 280_000,
-      });
+    const strong = await cachedPlannerModel();
+    if (!strong) return Response.json({ error: "No suitable planning model found on OpenRouter right now." }, { status: 503 });
     const warnings: string[] = [];
-    // Thinking models spend part of max_tokens on hidden reasoning, so give plenty of room.
-    let r = await ask("", 48_000);
-    let plan: EpisodePlan | null = null;
-    try {
-      if (r.finishReason === "length") throw new Error("cut off");
-      plan = normalizeEpisode(r.data, ctx, warnings);
-    } catch {
-      warnings.push(r.finishReason === "length" ? "The first answer was cut off; asked again for a shorter plan." : "The first answer had no usable shots; asked again.");
-      r = await ask("\n\nIMPORTANT: answer with the complete JSON object only. Use at most 28 shots; keep every field short.", 60_000);
-      plan = normalizeEpisode(r.data, ctx, warnings);
+    const fastModel = fast ? await cachedFastPlannerModel().catch(() => null) : null;
+    const planWith = async (model: string): Promise<{ plan: EpisodePlan; mode: string }> => {
+      const ask = (extra: string, maxTokens: number) =>
+        askJson({
+          apiKey: g.key,
+          model,
+          system: buildEpisodePrompt(ctx),
+          user: `PART TEXT (Bangla):\n${text}${extra}`,
+          name: "episode_plan",
+          schema: EPISODE_SCHEMA,
+          maxTokens,
+          timeoutMs: 280_000,
+        });
+      // Thinking models spend part of max_tokens on hidden reasoning, so give plenty of room.
+      let r = await ask("", 48_000);
+      let plan: EpisodePlan;
+      try {
+        if (r.finishReason === "length") throw new Error("cut off");
+        plan = normalizeEpisode(r.data, ctx, warnings);
+      } catch {
+        warnings.push(r.finishReason === "length" ? "The first answer was cut off; asked again for a shorter plan." : "The first answer had no usable shots; asked again.");
+        r = await ask("\n\nIMPORTANT: answer with the complete JSON object only. Use at most 28 shots; keep every field short.", 60_000);
+        plan = normalizeEpisode(r.data, ctx, warnings);
+      }
+      return { plan, mode: r.mode };
+    };
+    let model = strong;
+    let result: { plan: EpisodePlan; mode: string };
+    if (fastModel && fastModel !== strong) {
+      try {
+        model = fastModel;
+        result = await planWith(fastModel);
+      } catch (err) {
+        if (err instanceof OpenRouterError && err.status === 401) throw err;
+        warnings.push("The fast model's plan was not usable; used the strong model instead.");
+        model = strong;
+        result = await planWith(strong);
+      }
+    } else {
+      result = await planWith(strong);
     }
+    let plan = result.plan;
+    if (ctx.bible) plan = enforceBible(plan, ctx.bible, warnings);
+    const r = { mode: result.mode };
     if (r.mode === "json_object") warnings.push("The model did not accept the strict schema; used plain JSON mode.");
     return Response.json({ plan, model, warnings });
   } catch (err) {

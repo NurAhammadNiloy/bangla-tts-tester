@@ -23,6 +23,7 @@ import type {
   Weather,
 } from "@/lib/puppet/types";
 import { GENRES, type Genre } from "@/lib/storyPlan";
+import { bibleToPrompt, type StoryBible } from "@/lib/storyBible";
 
 /* --------------------------------- enums --------------------------------- */
 
@@ -170,6 +171,8 @@ export interface EpisodeContext {
   narrator: "female" | "male";
   /** Series name for the title; defaults to the model's choice. */
   series?: string;
+  /** Approved Story Bible; when set it overrides the model's own understanding of the story. */
+  bible?: StoryBible;
 }
 
 const MOOD_NOTES: Partial<Record<Genre, string>> = {
@@ -214,6 +217,7 @@ export function buildEpisodePrompt(ctx: EpisodeContext): string {
     prevCast ? `\nCAST FROM EARLIER EPISODES (reuse these exact ids, assets and looks):\n${prevCast}` : "",
     prevPlaces ? `\nPLACES FROM EARLIER EPISODES (reuse these exact ids and assets):\n${prevPlaces}` : "",
     "",
+    ctx.bible ? `\n${bibleToPrompt(ctx.bible, ctx.partIndex)}\n` : "",
     "STEP 1 — UNDERSTAND THE STORY (fill `understanding` before any shot)",
     "- summary: what happens in this part and what it means emotionally.",
     "- people: EVERY person in the story with exact relationships and facts (e.g. \"রহিমা খালা — widow, lives alone; her ONLY son মিজান lives in Dhaka\"). Count family members exactly.",

@@ -2,7 +2,7 @@
 
 /**
  * Make a video — the 5-screen wizard (v2).
- *  1 Story → 2 Look & voice → 3 Check episode → 4 Make (one button, one wait) → 5 Watch & fix.
+ *  1 Story → 2 Look & voice → 3 Director's review (Story Bible, approved by you) → 4 Check episode → 5 Make → 6 Watch & fix.
  * Decide everything first, wait once, fix after. Work is saved to the browser at every step.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -13,17 +13,20 @@ import { getKey } from "@/lib/projects/keyStore";
 import { getAsset, getProject, newProjectId, putAsset, putProject } from "@/lib/projects/db";
 import type { ProjectRecord } from "@/lib/projects/types";
 import { getSettings } from "@/lib/settings";
-import { GENRES, type Genre, type StoryPlan } from "@/lib/storyPlan";
+import { estimateSeconds, GENRES, partText, type Genre, type StoryPlan } from "@/lib/storyPlan";
 import { pickDefaultSpeechModel, STYLE_PRESETS, tagFamilyFor } from "@/lib/voiceDirector";
 import type { AssetLibrary, EpisodePlan } from "@/lib/puppet/types";
 import { createShotDrawer } from "@/lib/puppet/engine";
 import { autoDirect } from "@/lib/puppet/autoDirect";
 import { SAMPLE_STORY, SAMPLE_STORY_GENRE } from "@/lib/sampleStory";
+import DirectorReview from "@/components/create/DirectorReview";
+import { mergeSection, type BibleSection, type GateReport, type StoryBible } from "@/lib/storyBible";
 import { estimateEpisode, layoutEpisode } from "@/lib/pipeline/layout";
 import { castVoices, voiceForShot } from "@/lib/pipeline/voices";
 import {
   buildAssets,
   buildSegments,
+  makeBible,
   decodeVoice,
   finalizePlan,
   mergeLibrary,
@@ -38,12 +41,13 @@ import { drawEpisodeFrame, renderEpisode, type EpisodeRenderInput } from "@/lib/
 import { drawCaption } from "@/lib/render/renderer";
 import { cleanSubtitle } from "@/lib/render/timeline";
 
-type Step = "story" | "look" | "check" | "make" | "done";
+type Step = "story" | "look" | "review" | "check" | "make" | "done";
 type CaptionChoice = "box" | "clean" | "headline" | "bubbles";
 
 const STEPS: { id: Step; label: string }[] = [
   { id: "story", label: "গল্প · Story" },
   { id: "look", label: "স্টাইল · Look" },
+  { id: "review", label: "পর্যালোচনা · Review" },
   { id: "check", label: "দেখে নিন · Check" },
   { id: "make", label: "বানানো · Make" },
   { id: "done", label: "ভিডিও · Video" },
@@ -103,6 +107,9 @@ export default function CreateWizard() {
   const [outline, setOutline] = useState<StoryPlan | null>(null);
   const [partIndex, setPartIndex] = useState(0);
   const [plan, setPlan] = useState<EpisodePlan | null>(null);
+  const [bible, setBible] = useState<StoryBible | null>(null);
+  const [bibleReport, setBibleReport] = useState<GateReport | null>(null);
+  const [fastPlanner, setFastPlanner] = useState(true);
   const [library, setLibrary] = useState<Partial<AssetLibrary>>({});
   const [keyOpen, setKeyOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -150,6 +157,8 @@ export default function CreateWizard() {
       setMusic(p.settings.music);
       setOutline(p.outline ?? null);
       setLibrary(p.library ?? {});
+      setBible(p.bible ?? null);
+      setBibleReport(p.bibleReport ?? null);
       const ep = [...p.episodes].sort((a, b) => b.updatedAt - a.updatedAt)[0];
       if (ep) {
         setPartIndex(ep.index);
@@ -163,7 +172,8 @@ export default function CreateWizard() {
           setStep("done");
         } else if (ep.plan) setStep("check");
         else setStep("look");
-      } else if (p.outline) setStep("look");
+      } else if (p.bible) setStep("review");
+      else if (p.outline) setStep("look");
     })().catch(() => setError("Could not open that project."));
     return () => {
       cancelled = true;
@@ -255,7 +265,9 @@ export default function CreateWizard() {
         out = await planSeries(story, key, partMinutes, ctl.signal);
         out = { ...out, genre };
         setOutline(out);
-        await save({ outline: out, title: out.title });
+        setBible(null);
+        setBibleReport(null);
+        await save({ outline: out, title: out.title, bible: undefined, bibleReport: undefined });
       }
       setStep("look");
     } catch (e) {
@@ -265,7 +277,62 @@ export default function CreateWizard() {
     }
   }
 
-  async function directIt() {
+  async function reviewIt() {
+    if (!outline) return;
+    if (bible) {
+      setStep("review");
+      return;
+    }
+    setError(null);
+    const ctl = new AbortController();
+    abortRef.current = ctl;
+    try {
+      setBusy("Reading the whole story to write the Story Bible… (about 1 minute)");
+      const r = await makeBible(story, genre, outline.parts.length, getKey()!, ctl.signal);
+      setBible(r.bible);
+      setBibleReport(r.report);
+      await save({ bible: r.bible, bibleReport: r.report });
+      setStep("review");
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function regenerateCard(section: BibleSection) {
+    if (!bible) return;
+    setError(null);
+    const ctl = new AbortController();
+    abortRef.current = ctl;
+    try {
+      setBusy("Reading the story again for this card… (about 1 minute)");
+      const r = await makeBible(story, genre, outline?.parts.length ?? 1, getKey()!, ctl.signal);
+      const next = mergeSection(bible, r.bible, section);
+      setBible(next);
+      setBibleReport(r.report);
+      await save({ bible: next, bibleReport: r.report });
+    } catch (e) {
+      if ((e as Error).name !== "AbortError") setError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function editBible(b: StoryBible) {
+    setBible(b);
+    void save({ bible: b });
+  }
+
+  async function approveBible() {
+    if (!bible) return;
+    const approved = { ...bible, approvedAt: Date.now() };
+    setBible(approved);
+    await save({ bible: approved });
+    await directIt(approved);
+  }
+
+  async function directIt(approvedBible: StoryBible | null = bible) {
     if (!outline) return;
     setError(null);
     const key = getKey()!;
@@ -274,7 +341,7 @@ export default function CreateWizard() {
     try {
       setBusy(`Directing part ${partIndex + 1}: shots, camera, screens… (about 1 minute)`);
       const prevEp = project?.episodes.find((e) => e.index === partIndex - 1)?.plan ?? null;
-      const { plan: p0 } = await planEpisode(outline, partIndex, lib, key, { narrator, previous: prevEp, signal: ctl.signal });
+      const { plan: p0 } = await planEpisode(outline, partIndex, lib, key, { narrator, previous: prevEp, bible: approvedBible, fast: !!approvedBible && fastPlanner, signal: ctl.signal });
       setBusy("Drawing the new characters and places for your story…");
       const { made, failed } = await buildAssets(p0, lib, key, (t) => setBusy(t), ctl.signal);
       const nextLib: Partial<AssetLibrary> = {
@@ -597,13 +664,30 @@ export default function CreateWizard() {
             <Info title="Music">Soft music made for your story&apos;s mood, ducked under the voice, plus sounds like rain, knocks and phone rings.</Info>
           </label>
 
-          <button className={`${primary} mt-6`} disabled={!!busy} onClick={() => withKey(directIt)}>
+          <button className={`${primary} mt-6`} disabled={!!busy} onClick={() => withKey(reviewIt)}>
             পরের ধাপ · Next
           </button>
           <button className="mt-3 w-full text-sm font-semibold text-muted underline" onClick={() => setStep("story")}>
             ← Back to the story
           </button>
         </section>
+      )}
+
+      {step === "review" && outline && bible && (
+        <DirectorReview
+          bible={bible}
+          report={bibleReport}
+          story={story}
+          partsTotal={outline.parts.length}
+          voiceMinutes={estimateSeconds(partText(outline, outline.parts[partIndex] ?? outline.parts[0])) / 60}
+          fast={fastPlanner}
+          busy={!!busy}
+          onFast={setFastPlanner}
+          onChange={editBible}
+          onRegenerate={(s) => withKey(() => void regenerateCard(s))}
+          onApprove={() => withKey(() => void approveBible())}
+          onBack={() => setStep("look")}
+        />
       )}
 
       {step === "check" && plan && (
