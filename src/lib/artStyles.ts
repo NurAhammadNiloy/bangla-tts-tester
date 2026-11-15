@@ -96,6 +96,20 @@ export const ART_STYLES: ArtStyle[] = [
   },
 ];
 
+/**
+ * Styles that have a built-in preview picture at /previews/<id>.jpg.
+ * Filled in after the one-time preview generation.
+ */
+export const PREVIEW_IDS: string[] = [];
+
+export function previewSrc(id: string): string | null {
+  return PREVIEW_IDS.includes(id) ? `/previews/${id}.jpg` : null;
+}
+
+/** The same scene drawn in every style, so previews are directly comparable. */
+export const PREVIEW_SCENE =
+  "The MOTHER sits on the doorstep of a small tin-roof village house at sunset, looking hopefully down an empty dirt path, banana trees around.";
+
 export const ALWAYS = "Vertical 9:16 composition, no text, letters or watermarks in the image.";
 
 export function buildImagePrompt(stylePrompt: string, setting: string, characters: string, scene: string): string {

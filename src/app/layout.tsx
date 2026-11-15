@@ -3,7 +3,7 @@ import Nav from "@/components/Nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Bangla TTS Tester",
+  title: "Golpo Studio · Bangla story videos",
   description: "Test Bengali text-to-speech through OpenRouter with your own API key.",
   robots: { index: false, follow: false },
   applicationName: "Bangla TTS",

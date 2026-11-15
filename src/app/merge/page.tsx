@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import MergeTester from "@/components/MergeTester";
 
-export const metadata: Metadata = { title: "Voice + Video Merge · Bangla TTS" };
+export const metadata: Metadata = { title: "Video Maker · Golpo Studio" };
 
 export default function MergePage() {
   return (

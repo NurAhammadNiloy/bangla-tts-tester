@@ -3,10 +3,10 @@ import type { MetadataRoute } from "next";
 /** Lets Android (Chrome) and iOS (Safari → Share → Add to Home Screen) install the tester like an app. */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Bangla TTS Tester",
-    short_name: "Bangla TTS",
+    name: "Golpo Studio",
+    short_name: "Golpo Studio",
     description: "Test Bengali text-to-speech through OpenRouter with your own API key.",
-    start_url: "/",
+    start_url: "/merge",
     display: "standalone",
     orientation: "portrait",
     background_color: "#f7f5f2",

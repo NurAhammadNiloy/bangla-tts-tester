@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ART_STYLES, buildImagePrompt } from "@/lib/artStyles";
+import { ART_STYLES, buildImagePrompt, previewSrc } from "@/lib/artStyles";
+import StylePreviewMaker from "@/components/StylePreviewMaker";
 import { DEFAULT_CHARACTERS, DEFAULT_SCENES, DEFAULT_SETTING, VIDEO_MOTION_HINT, type SceneDraft } from "@/lib/mergeSample";
 import type { SpeechModel } from "@/lib/openrouter/types";
 import type { ImageModel, VideoModel } from "@/lib/openrouter/media";
@@ -324,23 +325,57 @@ export default function MergeTester() {
 
   const imgCost = scenes.reduce((a, s) => a + (s.imageCost ?? 0), 0);
   const vidCost = scenes.reduce((a, s) => a + (s.video?.cost ?? 0), 0);
+  const picturesDone = scenes.every((s) => s.imageUrl);
+  const storyReady = scenes.every((s) => s.narration.trim() && s.prompt.trim());
+  const progressSteps = [
+    { id: "story", icon: "✍️", label: "Story", done: storyReady },
+    { id: "voice", icon: "🔊", label: "Voice", done: audioReady },
+    { id: "pictures", icon: "🖼", label: "Pictures", done: visualsReady },
+    { id: "video", icon: "🎞", label: "Video", done: !!output },
+  ];
+  const allStyles = [...ART_STYLES, { id: "custom", label: "Custom", emoji: "✍️", prompt: "", goodFor: "Describe your own look" }];
+  const SCENE_COLORS = ["bg-orange-400", "bg-sky-500", "bg-indigo-500", "bg-amber-500", "bg-rose-400", "bg-emerald-500"];
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-12">
-      <header className="mb-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-teal-700 dark:text-teal-400">Merge test · audio first</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight">Voice + Video Merge</h1>
-        <p className="mt-2 text-stone-600 dark:text-stone-400">
-          Narration is made first. Its exact length decides each scene, then pictures and video are fitted to it and merged
-          into one 9:16 video, right in your browser.
+    <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:py-10">
+      <header className="mb-5">
+        <h1 className="text-3xl font-bold tracking-tight">🎬 Video Maker</h1>
+        <p className="mt-1.5 text-stone-600 dark:text-stone-400">
+          Turn a short Bangla story into a vertical video with narration, pictures, motion and subtitles. Follow the 4 steps
+          from top to bottom.
         </p>
       </header>
 
+      {/* Progress strip */}
+      <ol className="mb-5 grid grid-cols-4 gap-1.5">
+        {progressSteps.map((p, i) => (
+          <li key={p.id}>
+            <a
+              href={`#${p.id}`}
+              className={`flex flex-col items-center rounded-xl border px-1 py-2 text-center text-xs font-medium transition ${
+                p.done
+                  ? "border-teal-600 bg-teal-50 text-teal-800 dark:bg-teal-950/40 dark:text-teal-200"
+                  : "border-stone-200 bg-white text-stone-600 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-400"
+              }`}
+            >
+              <span className="text-lg">{p.done ? "✅" : p.icon}</span>
+              <span>
+                {i + 1}. {p.label}
+              </span>
+            </a>
+          </li>
+        ))}
+      </ol>
+
       {loadError && <Note kind="error">{loadError}</Note>}
 
-      <Card n="1" title="API key">
+      <section className="mb-5 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm dark:border-stone-800 dark:bg-stone-900">
+        <label className="label" htmlFor="key">
+          🔑 Your OpenRouter key
+        </label>
         <div className="flex gap-2">
           <input
+            id="key"
             type={showKey ? "text" : "password"}
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
@@ -350,78 +385,98 @@ export default function MergeTester() {
             aria-label="OpenRouter API key"
             className="input font-mono"
           />
-          <button type="button" onClick={() => setShowKey((s) => !s)} className="btn-secondary w-20">
+          <button type="button" onClick={() => setShowKey((v) => !v)} className="btn-secondary w-20">
             {showKey ? "Hide" : "Show"}
           </button>
         </div>
-        <p className="mt-2 text-xs text-stone-500">Kept only in this page&apos;s memory. Reloading forgets it.</p>
-      </Card>
+        <p className="mt-1.5 text-xs text-stone-500">
+          Needed for every AI step. It stays only on this page and is forgotten when you reload. You pay OpenRouter directly.
+        </p>
+      </section>
 
-      <Card n="2" title="Story (4 scenes)">
-        <div className="mb-4">
-          <span className="label">Art style</span>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {[...ART_STYLES, { id: "custom", label: "Custom…", emoji: "✍️", prompt: "", goodFor: "Describe your own" }].map((a) => (
+      {/* STEP 1 */}
+      <Step
+        id="story"
+        n={1}
+        title="Write your story"
+        what="Pick a look, then write each scene: one line the narrator says (Bangla) and what the picture shows (English)."
+        meta="Free"
+        done={storyReady}
+      >
+        <h3 className="mb-2 text-sm font-semibold">Art style: how the pictures will look</h3>
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+          {allStyles.map((a) => {
+            const src = previewSrc(a.id);
+            const on = artId === a.id;
+            return (
               <button
                 key={a.id}
                 type="button"
                 onClick={() => setArtId(a.id)}
-                aria-pressed={artId === a.id}
-                className={`rounded-xl border px-3 py-2 text-left transition ${
-                  artId === a.id ? "border-teal-700 bg-teal-700 text-white" : "border-stone-300 hover:border-teal-600 dark:border-stone-700"
+                aria-pressed={on}
+                className={`group overflow-hidden rounded-xl border-2 text-left transition ${
+                  on ? "border-teal-600 ring-2 ring-teal-600/30" : "border-transparent hover:border-stone-300 dark:hover:border-stone-700"
                 }`}
               >
-                <span className="block text-sm font-semibold">
-                  {a.emoji} {a.label}
-                </span>
-                <span className={`block text-xs ${artId === a.id ? "text-teal-50" : "text-stone-500"}`}>{a.goodFor}</span>
+                <div className="relative aspect-[4/5] bg-gradient-to-br from-stone-100 to-stone-200 dark:from-stone-800 dark:to-stone-900">
+                  {src ? (
+                    // eslint-disable-next-line @next/next/no-img-element -- small static preview
+                    <img src={src} alt={`${a.label} preview`} loading="lazy" className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="flex h-full items-center justify-center text-3xl">{a.emoji}</span>
+                  )}
+                  {on && <span className="absolute right-1 top-1 rounded-full bg-teal-600 px-1.5 text-xs text-white">✓</span>}
+                </div>
+                <div className="bg-white px-1.5 py-1 dark:bg-stone-900">
+                  <span className="block truncate text-xs font-semibold">{a.label}</span>
+                  <span className="block truncate text-[10px] text-stone-500">{a.goodFor}</span>
+                </div>
               </button>
-            ))}
-          </div>
-          {artId === "custom" && (
-            <textarea
-              value={customArt}
-              onChange={(e) => setCustomArt(e.target.value)}
-              rows={3}
-              placeholder="Describe the look in English, e.g. 'oil painting, warm golden light, thick brush strokes'"
-              className="input mt-2 text-sm"
-            />
-          )}
-          {styleChanged && (
-            <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">Style changed: tap “Redraw pictures” to apply it.</p>
-          )}
+            );
+          })}
         </div>
-        <details className="mb-3">
-          <summary className="cursor-pointer text-sm font-medium text-teal-700 dark:text-teal-400">
-            Characters &amp; setting (kept the same in every picture)
-          </summary>
-          <label className="mt-2 block">
-            <span className="label">Characters</span>
-            <textarea value={characters} onChange={(e) => setCharacters(e.target.value)} rows={4} className="input text-sm" />
-          </label>
-          <label className="mt-2 block">
-            <span className="label">Setting</span>
-            <input value={setting} onChange={(e) => setSetting(e.target.value)} className="input text-sm" />
-          </label>
+        {artId === "custom" && (
+          <textarea
+            value={customArt}
+            onChange={(e) => setCustomArt(e.target.value)}
+            rows={3}
+            placeholder="Describe the look in English, e.g. 'oil painting, warm golden light, thick brush strokes'"
+            className="input mt-3 text-sm"
+          />
+        )}
+        {styleChanged && <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">You changed the style. Redraw the pictures in step 3 to apply it.</p>}
+
+        <details className="mt-4 rounded-xl bg-stone-50 p-3 dark:bg-stone-800/50">
+          <summary className="cursor-pointer text-sm font-semibold">👥 Characters &amp; place (kept the same in every picture)</summary>
+          <p className="mt-1 text-xs text-stone-500">Describe each person once, with age, hair and clothes. This keeps them looking the same in every scene.</p>
+          <textarea value={characters} onChange={(e) => setCharacters(e.target.value)} rows={4} className="input mt-2 text-sm" aria-label="Characters" />
+          <input value={setting} onChange={(e) => setSetting(e.target.value)} className="input mt-2 text-sm" aria-label="Place" />
         </details>
-        <div className="space-y-4">
+
+        <h3 className="mb-2 mt-5 text-sm font-semibold">Scenes</h3>
+        <div className="space-y-3">
           {scenes.map((s, i) => (
             <div key={i} className="rounded-xl border border-stone-200 p-3 dark:border-stone-800">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-sm font-semibold">Scene {i + 1}</span>
-                <div className="flex gap-1 text-xs">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <span className="flex items-center gap-2 text-sm font-semibold">
+                  <span className={`h-3 w-3 rounded-full ${SCENE_COLORS[i % SCENE_COLORS.length]}`} /> Scene {i + 1}
+                </span>
+                <div className="flex overflow-hidden rounded-lg border border-stone-300 text-xs dark:border-stone-700" role="radiogroup" aria-label={`Scene ${i + 1} type`}>
                   {(["image", "video"] as const).map((k) => (
                     <button
                       key={k}
                       type="button"
+                      role="radio"
+                      aria-checked={s.kind === k}
                       onClick={() => update(i, { kind: k })}
-                      className={`rounded-md border px-2 py-1 ${s.kind === k ? "border-teal-700 bg-teal-700 text-white" : "border-stone-300 dark:border-stone-700"}`}
+                      className={`px-2.5 py-1.5 ${s.kind === k ? "bg-teal-700 text-white" : "bg-white dark:bg-stone-900"}`}
                     >
-                      {k === "image" ? "🖼 Image + motion" : "🎬 AI video"}
+                      {k === "image" ? "🖼 Picture + motion · cheap" : "🎬 AI video · costs more"}
                     </button>
                   ))}
                 </div>
               </div>
+              <label className="mb-1 block text-xs font-medium text-stone-600 dark:text-stone-400">🗣 Narrator says (Bangla, tags like [sad] allowed)</label>
               <textarea
                 value={s.narration}
                 onChange={(e) => update(i, { narration: e.target.value, audio: undefined })}
@@ -430,50 +485,50 @@ export default function MergeTester() {
                 className="input bangla text-base"
                 aria-label={`Scene ${i + 1} narration`}
               />
+              <label className="mb-1 mt-2 block text-xs font-medium text-stone-600 dark:text-stone-400">🖼 Picture shows (English)</label>
               <textarea
                 value={s.prompt}
                 onChange={(e) => update(i, { prompt: e.target.value, imageUrl: undefined, video: undefined })}
                 rows={2}
-                className="input mt-2 text-xs"
+                className="input text-sm"
                 aria-label={`Scene ${i + 1} picture description`}
               />
-              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-stone-500">
-                {s.audio ? (
-                  <>
-                    <audio controls src={s.audio.url} className="h-8 max-w-full" />
-                    <span className="font-semibold text-teal-700 dark:text-teal-400">🔊 {s.audio.seconds.toFixed(2)} s</span>
-                  </>
-                ) : (
-                  <span>No narration yet</span>
-                )}
-              </div>
-              {(s.imageUrl || s.video?.url) && (
-                <div className="mt-2 flex gap-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element -- generated data: URL, no optimisation possible */}
-                  {s.imageUrl && <img src={s.imageUrl} alt={`Scene ${i + 1}`} className="h-32 rounded-lg object-cover" />}
-                  {s.video?.url && <video src={s.video.url} className="h-32 rounded-lg" muted loop autoPlay playsInline />}
+              {(s.audio || s.imageUrl || s.video) && (
+                <div className="mt-2 flex flex-wrap items-center gap-3">
+                  {s.imageUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element -- generated data: URL
+                    <img src={s.imageUrl} alt={`Scene ${i + 1}`} className="h-28 rounded-lg object-cover" />
+                  )}
+                  {s.video?.url && <video src={s.video.url} className="h-28 rounded-lg" muted loop autoPlay playsInline />}
+                  <div className="space-y-1 text-xs">
+                    {s.audio && (
+                      <>
+                        <span className="font-semibold text-teal-700 dark:text-teal-400">🔊 {s.audio.seconds.toFixed(1)} s</span>
+                        <audio controls src={s.audio.url} className="h-8 max-w-[220px]" />
+                      </>
+                    )}
+                    {s.video?.status && !s.video.url && <span className="block text-stone-500">🎬 {s.video.status.replace("_", " ")}…</span>}
+                  </div>
                 </div>
               )}
-              {s.video?.status && !s.video.url && <p className="mt-1 text-xs text-stone-500">Video: {s.video.status}</p>}
             </div>
           ))}
         </div>
-      </Card>
+      </Step>
 
-      <Card n="3" title="Step 1 · Narration (always first)">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <label className="block sm:col-span-3">
-            <span className="label">Voice model</span>
-            <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)} className="input">
-              {speech.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block sm:col-span-2">
-            <span className="label">Story style</span>
+      {/* STEP 2 */}
+      <Step
+        id="voice"
+        n={2}
+        title="Make the voice"
+        what="Creates the Bangla narration for every scene. Its length decides how long each picture stays on screen, so the voice always comes first."
+        meta="⏱ about 20 s · 💲 about $0.01"
+        done={audioReady}
+        locked={!storyReady ? "Fill in every scene in step 1 first." : undefined}
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="label">Story mood</span>
             <select value={presetId} onChange={(e) => setPresetId(e.target.value)} className="input">
               {STYLE_PRESETS.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -483,8 +538,8 @@ export default function MergeTester() {
             </select>
           </label>
           <div>
-            <span className="label">Narrator</span>
-            <div className="flex gap-1">
+            <span className="label">Narrator voice</span>
+            <div className="flex gap-1.5">
               {(["female", "male"] as const).map((g) => (
                 <button
                   key={g}
@@ -492,74 +547,60 @@ export default function MergeTester() {
                   onClick={() => setGender(g)}
                   className={`flex-1 rounded-lg border px-2 py-2.5 text-sm ${gender === g ? "border-teal-700 bg-teal-700 text-white" : "border-stone-300 dark:border-stone-700"}`}
                 >
-                  {g === "female" ? "♀" : "♂"} {voice && gender === g ? voice : g === "female" ? "Female" : "Male"}
+                  {g === "female" ? "♀ Female" : "♂ Male"}
+                  {gender === g && voice ? ` · ${voice}` : ""}
                 </button>
               ))}
             </div>
           </div>
         </div>
-        <button onClick={makeVoices} disabled={!!busy || !tts} className="btn-primary mt-4">
-          {busy === "voice" ? "Generating narration…" : audioReady ? "↻ Regenerate narration" : "Generate narration"}
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs font-medium text-stone-500">Voice model (advanced)</summary>
+          <select value={ttsModel} onChange={(e) => setTtsModel(e.target.value)} className="input mt-2">
+            {speech.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </select>
+        </details>
+        <button onClick={makeVoices} disabled={!!busy || !tts || !storyReady} className="btn-primary mt-4 w-full sm:w-auto">
+          {busy === "voice" ? "Making the voice…" : audioReady ? "↻ Make the voice again" : "🔊 Make the voice"}
         </button>
         {audioReady && (
-          <p className="mt-2 text-sm text-stone-600 dark:text-stone-400">
-            Timeline locked to audio: <b>{totalDuration(slots).toFixed(1)} s</b> total (
-            {slots.map((s) => `${(s.end - s.start).toFixed(1)}s`).join(" + ")}).
-          </p>
+          <div className="mt-4">
+            <p className="mb-1 text-xs text-stone-500">
+              Video timeline, set by the voice: <b>{totalDuration(slots).toFixed(1)} s</b>
+            </p>
+            <div className="flex h-7 overflow-hidden rounded-lg text-[11px] font-semibold text-white">
+              {slots.map((sl, i) => (
+                <div
+                  key={i}
+                  className={`flex items-center justify-center ${SCENE_COLORS[i % SCENE_COLORS.length]}`}
+                  style={{ width: `${((sl.end - sl.start) / totalDuration(slots)) * 100}%` }}
+                  title={`Scene ${i + 1}`}
+                >
+                  {(sl.end - sl.start).toFixed(1)}s
+                </div>
+              ))}
+            </div>
+          </div>
         )}
-      </Card>
+      </Step>
 
-      <Card n="4" title="Step 2 · Pictures and video, fitted to the audio">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="label">Image model</span>
-            <select value={imageModel} onChange={(e) => setImageModel(e.target.value)} className="input">
-              {imageModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                  {m.acceptsReferences ? " ✓ref" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="label">Video model</span>
-            <select
-              value={videoModel}
-              onChange={(e) => {
-                setVideoModel(e.target.value);
-                const vm = videoModels.find((m) => m.id === e.target.value);
-                setVideoRes(vm?.resolutions.includes("480p") ? "480p" : (vm?.resolutions[0] ?? ""));
-              }}
-              className="input"
-            >
-              {videoModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {vModel && vModel.resolutions.length > 0 && (
-            <label className="block">
-              <span className="label">Video resolution</span>
-              <select value={videoRes} onChange={(e) => setVideoRes(e.target.value)} className="input">
-                {vModel.resolutions.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-        <p className="mt-2 text-xs text-stone-500">
-          Scene 1&apos;s picture is reused as a character reference for the others (models marked ✓ref). The video scene
-          animates its own picture.
-        </p>
-        <div className="mt-4 flex flex-wrap gap-2">
+      {/* STEP 3 */}
+      <Step
+        id="pictures"
+        n={3}
+        title="Make the pictures"
+        what="Draws one picture per scene in your art style. Scenes set to 🎬 then get a short AI video clip made from their picture, cut to fit the voice."
+        meta="⏱ about 1 min · 💲 a few cents per picture · 🎬 clip ≈ $0.10–0.20 (shown before you approve)"
+        done={visualsReady}
+        locked={!audioReady ? "Make the voice in step 2 first. It sets each scene's length." : undefined}
+      >
+        <div className="flex flex-wrap gap-2">
           <button onClick={makeImages} disabled={!!busy || !audioReady || !iModel} className="btn-primary">
-            {busy === "images" ? "Drawing…" : scenes.every((s) => s.imageUrl) ? "↻ Redraw pictures" : "Draw pictures"}
+            {busy === "images" ? "Drawing…" : picturesDone ? "↻ Redraw pictures" : "🖼 Draw pictures"}
           </button>
           {videoScenes.length > 0 && (
             <button
@@ -567,7 +608,7 @@ export default function MergeTester() {
               disabled={!!busy || !audioReady || !videoScenes.every(({ s }) => s.imageUrl) || !vModel}
               className="btn-primary"
             >
-              🎬 Animate video scene
+              🎬 Make video clip{videoScenes.length > 1 ? "s" : ""}
             </button>
           )}
           {busy === "video" && (
@@ -576,21 +617,23 @@ export default function MergeTester() {
             </button>
           )}
         </div>
-        {!audioReady && <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">Make the narration first: it sets each scene&apos;s length.</p>}
+        {videoScenes.length > 0 && !picturesDone && audioReady && (
+          <p className="mt-2 text-xs text-stone-500">Draw the pictures first; the video clip starts from its scene&apos;s picture.</p>
+        )}
 
         {confirmVideo && (
           <div className="mt-4 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-sm dark:bg-amber-950/30">
-            <p className="font-semibold">Approve video cost</p>
+            <p className="font-semibold">💲 Approve the video cost</p>
             {videoPlan.map((p) => (
               <p key={p.i} className="mt-1">
-                Scene {p.i + 1}: audio slot {(slots[p.i].end - slots[p.i].start).toFixed(2)} s → clip of <b>{p.dur} s</b> with{" "}
-                {vModel?.name} at {videoRes || "default"}. Estimated <b>{p.cost !== null ? formatUsd(p.cost) : "unknown"}</b>
+                Scene {p.i + 1}: voice slot {(slots[p.i].end - slots[p.i].start).toFixed(1)} s → <b>{p.dur} s clip</b> ({vModel?.name}, {videoRes || "default"}).
+                Estimated <b>{p.cost !== null ? formatUsd(p.cost) : "unknown"}</b>
               </p>
             ))}
-            <p className="mt-1 text-xs text-stone-600 dark:text-stone-400">Billed by OpenRouter to your key. Takes about 1–5 minutes.</p>
+            <p className="mt-1 text-xs text-stone-600 dark:text-stone-400">Charged by OpenRouter to your key. Takes about 1–5 minutes.</p>
             <div className="mt-3 flex gap-2">
               <button onClick={makeVideos} className="btn-primary">
-                Approve &amp; generate
+                Approve &amp; make
               </button>
               <button onClick={() => setConfirmVideo(false)} className="btn-secondary">
                 Cancel
@@ -598,11 +641,68 @@ export default function MergeTester() {
             </div>
           </div>
         )}
-      </Card>
 
-      <Card n="5" title="Step 3 · Merge into one video">
-        <button onClick={render} disabled={!!busy || !audioReady || !visualsReady} className="btn-primary">
-          {busy === "render" ? `Rendering… ${Math.round(progress * 100)}%` : "🎞 Render final video"}
+        <details className="mt-4">
+          <summary className="cursor-pointer text-xs font-medium text-stone-500">Picture &amp; video models (advanced)</summary>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="label">Picture model</span>
+              <select value={imageModel} onChange={(e) => setImageModel(e.target.value)} className="input">
+                {imageModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                    {m.acceptsReferences ? " ✓ keeps characters" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="label">Video model</span>
+              <select
+                value={videoModel}
+                onChange={(e) => {
+                  setVideoModel(e.target.value);
+                  const vm = videoModels.find((m) => m.id === e.target.value);
+                  setVideoRes(vm?.resolutions.includes("480p") ? "480p" : (vm?.resolutions[0] ?? ""));
+                }}
+                className="input"
+              >
+                {videoModels.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {vModel && vModel.resolutions.length > 0 && (
+              <label className="block">
+                <span className="label">Video quality</span>
+                <select value={videoRes} onChange={(e) => setVideoRes(e.target.value)} className="input">
+                  {vModel.resolutions.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          <p className="mt-2 text-xs text-stone-500">“✓ keeps characters” models reuse scene 1&apos;s picture as a reference, so people look the same.</p>
+        </details>
+      </Step>
+
+      {/* STEP 4 */}
+      <Step
+        id="video"
+        n={4}
+        title="Make the final video"
+        what="Joins the voice, pictures, motion and subtitles (the spoken word turns yellow) into one video file. It records in real time, so keep the screen on."
+        meta="⏱ as long as the video · 💲 free"
+        done={!!output}
+        locked={!audioReady ? "Make the voice first (step 2)." : !visualsReady ? "Make all pictures and video clips first (step 3)." : undefined}
+      >
+        <button onClick={render} disabled={!!busy || !audioReady || !visualsReady} className="btn-primary w-full sm:w-auto">
+          {busy === "render" ? `Recording… ${Math.round(progress * 100)}%` : output ? "↻ Make the video again" : "🎞 Make the final video"}
         </button>
         {busy === "render" && (
           <>
@@ -617,59 +717,104 @@ export default function MergeTester() {
         {output && (
           <div className="mt-4">
             <video src={output.url} controls playsInline className="mx-auto max-h-[70vh] rounded-xl bg-black" />
-            <div className="mt-3 flex flex-wrap gap-2">
-              <a href={output.url} download={`golpo-test.${output.ext}`} className="btn-secondary">
-                ⬇ Download .{output.ext}
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              <a href={output.url} download={`golpo-video.${output.ext}`} className="btn-primary">
+                ⬇ Download video
               </a>
               <button onClick={shareOutput} className="btn-secondary">
-                Share / Save to phone
+                📤 Share / Save to phone
               </button>
             </div>
-            <p className="mt-2 text-xs text-stone-500">
-              Format: {output.mime.includes("avc1") ? "MP4 (H.264 + AAC), plays everywhere" : `${output.mime}. If it won't upload or play on iPhone, render in Safari or desktop Chrome for H.264.`}
+            <p className="mt-2 text-center text-xs text-stone-500">
+              {output.mime.includes("avc1") ? "MP4 (H.264), plays everywhere." : `Format: ${output.mime}. For an iPhone-friendly MP4, make it in Safari or desktop Chrome.`}
             </p>
-            <h3 className="mt-4 text-sm font-semibold">Sync report</h3>
-            <table className="mt-1 w-full text-left text-xs">
-              <thead className="text-stone-500">
-                <tr>
-                  <th className="py-1">Scene</th>
-                  <th>Audio</th>
-                  <th>On screen</th>
-                  <th>Visual</th>
-                </tr>
-              </thead>
-              <tbody>
-                {output.report.map((r) => (
-                  <tr key={r.scene} className="border-t border-stone-200 dark:border-stone-800">
-                    <td className="py-1">{r.scene}</td>
-                    <td>{r.audioSeconds.toFixed(2)} s</td>
-                    <td>
-                      {r.slotStart.toFixed(2)}–{r.slotEnd.toFixed(2)} s
-                    </td>
-                    <td>{r.visual === "video" ? `video ×${r.playbackRate ?? 1} speed` : "image + motion"}</td>
+            <details className="mt-3">
+              <summary className="cursor-pointer text-xs font-medium text-stone-500">Sync report (for checking timing)</summary>
+              <table className="mt-1 w-full text-left text-xs">
+                <thead className="text-stone-500">
+                  <tr>
+                    <th className="py-1">Scene</th>
+                    <th>Voice</th>
+                    <th>On screen</th>
+                    <th>Visual</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {output.report.map((r) => (
+                    <tr key={r.scene} className="border-t border-stone-200 dark:border-stone-800">
+                      <td className="py-1">{r.scene}</td>
+                      <td>{r.audioSeconds.toFixed(2)} s</td>
+                      <td>
+                        {r.slotStart.toFixed(2)}–{r.slotEnd.toFixed(2)} s
+                      </td>
+                      <td>{r.visual === "video" ? `clip ×${r.playbackRate ?? 1} speed` : "picture + motion"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
           </div>
         )}
         <p className="mt-3 text-xs text-stone-500">
-          Spent so far: pictures {formatUsd(imgCost || null)}, video {formatUsd(vidCost || null)}, narration ≈ $0.01.
+          Spent this session: pictures {formatUsd(imgCost || null)} · video {formatUsd(vidCost || null)} · voice ≈ $0.01
         </p>
-      </Card>
+      </Step>
+
+      <details className="mb-5 rounded-2xl border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-900">
+        <summary className="cursor-pointer text-sm font-semibold">🧪 One-time setup: make the art style preview pictures</summary>
+        <div className="mt-3">
+          <StylePreviewMaker apiKey={apiKey} imageModel={imageModel} />
+        </div>
+      </details>
 
       {message && <Note kind={message.kind}>{message.text}</Note>}
     </div>
   );
 }
 
-function Card({ n, title, children }: { n: string; title: string; children: React.ReactNode }) {
+function Step({
+  id,
+  n,
+  title,
+  what,
+  meta,
+  done,
+  locked,
+  children,
+}: {
+  id: string;
+  n: number;
+  title: string;
+  what: string;
+  meta: string;
+  done?: boolean;
+  locked?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <section className="mb-5 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm dark:border-stone-800 dark:bg-stone-900">
-      <h2 className="mb-4 flex items-center gap-3 text-lg font-semibold">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-700 text-sm text-white">{n}</span>
-        {title}
-      </h2>
+    <section
+      id={id}
+      className={`mb-5 scroll-mt-16 rounded-2xl border bg-white p-4 shadow-sm sm:p-5 dark:bg-stone-900 ${
+        done ? "border-teal-300 dark:border-teal-900" : "border-stone-200 dark:border-stone-800"
+      }`}
+    >
+      <div className="mb-3 flex gap-3">
+        <span
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ${
+            done ? "bg-teal-600" : locked ? "bg-stone-400" : "bg-teal-700"
+          }`}
+        >
+          {done ? "✓" : locked ? "🔒" : n}
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-lg font-semibold leading-tight">
+            Step {n} · {title}
+          </h2>
+          <p className="mt-1 text-sm text-stone-600 dark:text-stone-400">{what}</p>
+          <p className="mt-1 text-xs font-medium text-stone-500">{meta}</p>
+        </div>
+      </div>
+      {locked && <p className="mb-3 rounded-lg bg-stone-100 px-3 py-2 text-xs text-stone-600 dark:bg-stone-800 dark:text-stone-400">🔒 {locked}</p>}
       {children}
     </section>
   );

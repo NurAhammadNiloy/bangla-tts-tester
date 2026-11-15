@@ -349,15 +349,17 @@ export default function TtsTester() {
 
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-12">
-      <header className="mb-8">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-teal-700 dark:text-teal-400">
-          Phase 0 · Feasibility test
+      <header className="mb-6">
+        <h1 className="text-3xl font-bold tracking-tight">🔊 Voice Lab</h1>
+        <p className="mt-1.5 text-stone-600 dark:text-stone-400">
+          Try Bangla voices, moods and emotion tags on one piece of text before making a video. Optional: the Video Maker
+          already uses the best settings.
         </p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Bangla TTS Tester</h1>
-        <p className="mt-2 text-stone-600 dark:text-stone-400">
-          Generate Bengali speech through OpenRouter with your own API key, then record how well each model
-          pronounces it.
-        </p>
+        <ol className="mt-3 grid gap-1.5 text-sm text-stone-600 sm:grid-cols-3 dark:text-stone-400">
+          <li className="rounded-lg bg-white px-3 py-2 dark:bg-stone-900">① Paste your key</li>
+          <li className="rounded-lg bg-white px-3 py-2 dark:bg-stone-900">② Pick a mood and voice</li>
+          <li className="rounded-lg bg-white px-3 py-2 dark:bg-stone-900">③ Generate, listen, rate</li>
+        </ol>
       </header>
 
       {/* 1. API key */}
