@@ -34,11 +34,19 @@ export const MAX_STORY_CHARS = 60_000;
 export const MAX_PARTS = 15;
 export const MAX_SCENES_PER_PART = 60;
 
+/** Camera framing of one scene's picture. Never the same twice in a row. */
+export type SceneShot = "wide" | "medium" | "close-up" | "over-shoulder" | "object close-up";
+export const SCENE_SHOTS: SceneShot[] = ["wide", "medium", "close-up", "over-shoulder", "object close-up"];
+
 export interface PlanScene {
   narration: string;
   picture: string;
   speaker: string;
   titleTag: string;
+  /** NAMES of the characters who are actually visible in this scene (may be empty). Missing in old saved plans. */
+  cast?: string[];
+  /** Camera framing. Missing in old saved plans. */
+  shot?: SceneShot;
 }
 
 export interface PlanPart {
@@ -240,12 +248,18 @@ export const SCENES_SCHEMA = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["narration", "picture", "speaker", "titleTag"],
+        required: ["narration", "picture", "speaker", "titleTag", "cast", "shot"],
         properties: {
           narration: { type: "string" },
           picture: { type: "string" },
           speaker: { type: "string" },
           titleTag: { type: "string" },
+          cast: {
+            type: "array",
+            description: "NAMES (exactly as in the character list) of the characters visible in this picture. Empty if nobody is visible.",
+            items: { type: "string" },
+          },
+          shot: { type: "string", enum: SCENE_SHOTS },
         },
       },
     },
@@ -266,7 +280,9 @@ export function buildScenesPrompt(ctx: { genre: Genre; characters: string; setti
     `  ${[...allowedTags("gemini")].join(", ")}. Never two tags side by side. About one tag every 1–2 scenes.`,
     "- speaker: the character's name when the narration is that character speaking aloud; otherwise \"\".",
     "- titleTag: short Bangla tag only when time or place jumps (e.g. \"৩ মাস পর • বৃষ্টির দুপুর\"); otherwise \"\".",
-    "- picture: English, concrete: who is in frame (by NAME), action, expression, place, time of day, camera (wide / medium / close-up). Vary camera angles. No text or letters in the picture.",
+    "- cast: the NAMES of ONLY the characters who are actually visible in this scene's picture (from the character list, spelled the same). Leave out anyone who is only mentioned, remembered or off-screen. Use [] when nobody is visible.",
+    `- shot: the camera framing, one of: ${SCENE_SHOTS.join(", ")}. Never use the same shot in two scenes in a row. Use "object close-up" for an important thing (a letter, a door, a phone) and "over-shoulder" for conversations.`,
+    "- picture: English, concrete: who is in frame (by NAME, only the cast), action, expression, place, time of day, framed as the chosen shot. No text or letters in the picture.",
     ctx.genre === "explainer" ? "- Explainer: pictures are simple diagrams, icons and symbolic scenes that show the idea of each line." : "",
     ctx.isLast ? "- This is the final part: end on a satisfying closing scene." : `- End on the hook so viewers want the next part: ${ctx.hook || "a moment of curiosity"}.`,
     "Return ONLY the JSON.",
@@ -275,19 +291,112 @@ export function buildScenesPrompt(ctx: { genre: Genre; characters: string; setti
     .join("\n");
 }
 
+function cleanCast(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const x of v) {
+    const name = str(x, 40);
+    if (name && !out.some((o) => o.toLowerCase() === name.toLowerCase())) out.push(name);
+  }
+  return out.slice(0, 8);
+}
+
+/**
+ * Make sure no two scenes in a row share a shot. Invalid shots are replaced too.
+ * The replacement also avoids the next scene's shot when possible.
+ */
+export function fixShots(shots: (string | undefined)[]): SceneShot[] {
+  const out: SceneShot[] = [];
+  for (let i = 0; i < shots.length; i++) {
+    const want = shots[i];
+    const prev = out[i - 1];
+    if (SCENE_SHOTS.includes(want as SceneShot) && want !== prev) {
+      out.push(want as SceneShot);
+      continue;
+    }
+    const next = shots[i + 1];
+    const pick = SCENE_SHOTS.find((s) => s !== prev && s !== next) ?? SCENE_SHOTS.find((s) => s !== prev)!;
+    out.push(pick);
+  }
+  return out;
+}
+
 export function normalizeScenes(obj: Record<string, unknown>): PlanScene[] {
   const tags = allowedTags("gemini");
-  const scenes = (Array.isArray(obj.scenes) ? obj.scenes : [])
+  const raw = (Array.isArray(obj.scenes) ? obj.scenes : [])
     .map((s: Record<string, unknown>) => ({
       narration: separateAdjacentTags(sanitizeTags(str(s?.narration, 600), tags)),
       picture: str(s?.picture, 800),
       speaker: str(s?.speaker, 40),
       titleTag: str(s?.titleTag, 40),
+      cast: cleanCast(s?.cast),
+      shot: str(s?.shot, 20).toLowerCase(),
     }))
-    .filter((s: PlanScene) => s.narration && s.picture)
+    .filter((s: { narration: string; picture: string }) => s.narration && s.picture)
     .slice(0, MAX_SCENES_PER_PART);
-  if (!scenes.length) throw new Error("The AI returned no scenes. Try again.");
-  return scenes;
+  if (!raw.length) throw new Error("The AI returned no scenes. Try again.");
+  const shots = fixShots(raw.map((s: { shot: string }) => s.shot));
+  return raw.map((s: Omit<PlanScene, "shot"> & { shot: string }, i: number): PlanScene => ({ ...s, shot: shots[i] }));
+}
+
+/* ------------------------------ picture prompt helpers ------------------------------ */
+
+/**
+ * Split the characters box into one entry per person. Entries look like
+ * "NAME — description" (dash, en dash, hyphen with spaces, or colon), one per line
+ * or one after another in a paragraph.
+ */
+export function splitCharacters(text: string): { name: string; text: string }[] {
+  const t = text.replace(/\r/g, "").trim();
+  if (!t) return [];
+  // A name starts a line (then a dash or colon follows) or a new sentence (then only a dash follows).
+  const re = /(^|\n|[.;]\s+)\s*([^\n—–:.;]{1,40}?)\s*(\s[—–-]\s|[—–]|:)\s*/g;
+  const starts: { at: number; name: string }[] = [];
+  for (let m = re.exec(t); m; m = re.exec(t)) {
+    const lineStart = m[1] === "" || m[1] === "\n";
+    if (m[3] === ":" && !lineStart) continue;
+    starts.push({ at: m.index + m[1].length, name: m[2].trim() });
+  }
+  return starts
+    .map((s, i) => ({ name: s.name, text: t.slice(s.at, i + 1 < starts.length ? starts[i + 1].at : t.length).trim() }))
+    .filter((e) => e.name);
+}
+
+const sameName = (a: string, b: string) => {
+  const x = a.toLowerCase().trim();
+  const y = b.toLowerCase().trim();
+  return !!x && !!y && (x === y || x.split(/\s+/).includes(y) || y.split(/\s+/).includes(x));
+};
+
+/**
+ * Character descriptions for one scene's picture: only the people in `cast`.
+ * cast undefined (hand-written scene, old plan) → every description.
+ * cast [] → nobody. If the box cannot be split into named entries, it is used whole.
+ */
+export function castDescriptions(characters: string, cast: string[] | undefined): string {
+  if (!cast) return characters;
+  if (!cast.length) return "";
+  const entries = splitCharacters(characters);
+  if (!entries.length) return characters;
+  return entries
+    .filter((e) => cast.some((c) => sameName(e.name, c)))
+    .map((e) => e.text)
+    .join(" ");
+}
+
+const SHOT_WORDS: Record<SceneShot, string> = {
+  wide: "Wide shot showing the whole place.",
+  medium: "Medium shot, people from the waist up.",
+  "close-up": "Close-up on the face and its expression.",
+  "over-shoulder": "Over-the-shoulder shot from behind one person, looking at the other.",
+  "object close-up": "Close-up of the important object, filling the frame.",
+};
+
+/** The scene line of a picture prompt: camera framing first, then what is shown. */
+export function sceneLine(picture: string, shot: SceneShot | undefined, cast?: string[]): string {
+  return [shot ? `Camera: ${SHOT_WORDS[shot]}` : "", picture.trim(), cast && !cast.length ? "No people in this picture." : ""]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /* ------------------------------ model choice ------------------------------ */
