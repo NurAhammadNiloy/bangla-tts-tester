@@ -49,6 +49,8 @@ export interface AskJsonResult {
   data: Record<string, unknown>;
   /** "json_schema" when strict mode worked, "json_object" after the 400 fallback. */
   mode: "json_schema" | "json_object";
+  /** "length" means the answer was cut off by the token limit. */
+  finishReason: string | null;
 }
 
 export async function askJson(p: AskJsonParams): Promise<AskJsonResult> {
@@ -70,11 +72,11 @@ export async function askJson(p: AskJsonParams): Promise<AskJsonResult> {
       },
       { timeoutMs },
     );
-    return { data: parseJsonObject(r.content), mode: "json_schema" };
+    return { data: parseJsonObject(r.content), mode: "json_schema", finishReason: r.finishReason ?? null };
   } catch (err) {
     if (!(err instanceof OpenRouterError) || err.status !== 400) throw err;
     const r = await chatComplete({ ...base, responseFormat: { type: "json_object" } }, { timeoutMs });
-    return { data: parseJsonObject(r.content), mode: "json_object" };
+    return { data: parseJsonObject(r.content), mode: "json_object", finishReason: r.finishReason ?? null };
   }
 }
 

@@ -10,6 +10,7 @@ import {
 import { askJson, cachedPlannerModel, JsonReplyError } from "@/lib/openrouter/askJson";
 import { OpenRouterError } from "@/lib/openrouter/errors";
 import { GENRES, type Genre } from "@/lib/storyPlan";
+import type { EpisodePlan } from "@/lib/puppet/types";
 
 export const maxDuration = 300;
 
@@ -55,17 +56,30 @@ export async function POST(req: Request) {
   try {
     const model = await cachedPlannerModel();
     if (!model) return Response.json({ error: "No suitable planning model found on OpenRouter right now." }, { status: 503 });
-    const { data, mode } = await askJson({
-      apiKey: g.key,
-      model,
-      system: buildEpisodePrompt(ctx),
-      user: `PART TEXT (Bangla):\n${text}`,
-      name: "episode_plan",
-      schema: EPISODE_SCHEMA,
-    });
+    const ask = (extra: string, maxTokens: number) =>
+      askJson({
+        apiKey: g.key,
+        model,
+        system: buildEpisodePrompt(ctx),
+        user: `PART TEXT (Bangla):\n${text}${extra}`,
+        name: "episode_plan",
+        schema: EPISODE_SCHEMA,
+        maxTokens,
+        timeoutMs: 280_000,
+      });
     const warnings: string[] = [];
-    if (mode === "json_object") warnings.push("The model did not accept the strict schema; used plain JSON mode.");
-    const plan = normalizeEpisode(data, ctx, warnings);
+    // Thinking models spend part of max_tokens on hidden reasoning, so give plenty of room.
+    let r = await ask("", 48_000);
+    let plan: EpisodePlan | null = null;
+    try {
+      if (r.finishReason === "length") throw new Error("cut off");
+      plan = normalizeEpisode(r.data, ctx, warnings);
+    } catch {
+      warnings.push(r.finishReason === "length" ? "The first answer was cut off; asked again for a shorter plan." : "The first answer had no usable shots; asked again.");
+      r = await ask("\n\nIMPORTANT: answer with the complete JSON object only. Use at most 28 shots; keep every field short.", 60_000);
+      plan = normalizeEpisode(r.data, ctx, warnings);
+    }
+    if (r.mode === "json_object") warnings.push("The model did not accept the strict schema; used plain JSON mode.");
     return Response.json({ plan, model, warnings });
   } catch (err) {
     if (err instanceof JsonReplyError || (err instanceof Error && !(err instanceof OpenRouterError) && /shots|JSON/.test(err.message))) {

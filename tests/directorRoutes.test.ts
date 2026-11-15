@@ -89,7 +89,7 @@ describe("POST /api/episode", () => {
   it("422 on bad JSON or no shots; upstream errors keep their status", async () => {
     chat.mockResolvedValueOnce(reply("sorry, I cannot"));
     expect((await episodePost(req("/api/episode", episodeBody))).status).toBe(422);
-    chat.mockResolvedValueOnce(reply({ shots: [] }));
+    chat.mockResolvedValueOnce(reply({ shots: [] })).mockResolvedValueOnce(reply({ shots: [] })); // first try + retry
     expect((await episodePost(req("/api/episode", episodeBody))).status).toBe(422);
     chat.mockRejectedValueOnce(new OpenRouterError(402, "no credits"));
     const r = await episodePost(req("/api/episode", episodeBody));

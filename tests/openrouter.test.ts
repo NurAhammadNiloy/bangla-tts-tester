@@ -157,6 +157,6 @@ describe("helper model + chat", () => {
     const r = await chatComplete({ apiKey: FAKE_KEY, model: "a/b", system: "s", user: "u" });
     expect(calls[0].url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(calls[0].body?.messages).toEqual([{ role: "system", content: "s" }, { role: "user", content: "u" }]);
-    expect(r).toEqual({ content: "hi", generationId: "gen-c" });
+    expect(r).toEqual({ content: "hi", generationId: "gen-c", finishReason: null });
   });
 });

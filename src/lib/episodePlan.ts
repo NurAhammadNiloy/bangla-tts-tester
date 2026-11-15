@@ -579,8 +579,34 @@ function normHalf(raw: unknown, refs: Refs): { place: string; actors: ActorInSho
  * Strict LLM JSON → exact EpisodePlan (version 2). Never throws for messy fields;
  * throws only when no usable shot is left. Problems are appended to `warnings`.
  */
+/** Models sometimes wrap the plan ({"episode": {...}}) or rename keys in plain JSON mode. */
+export function unwrapEpisode(input: unknown): R {
+  let o = rec(input);
+  for (let i = 0; i < 2 && !Array.isArray(o.shots); i++) {
+    const inner = Object.values(o).find((v) => v && typeof v === "object" && !Array.isArray(v) && ("shots" in (v as R) || "scenes" in (v as R)));
+    if (!inner) break;
+    o = rec(inner);
+  }
+  if (!Array.isArray(o.shots)) {
+    const alt = ["scenes", "beats", "shot_list", "shotList"].find((k) => Array.isArray(o[k]));
+    if (alt) o = { ...o, shots: o[alt] };
+  }
+  if (Array.isArray(o.shots)) {
+    o = {
+      ...o,
+      shots: (o.shots as unknown[]).map((x) => {
+        const r = rec(x);
+        if (typeof r.line === "string" && r.line.trim()) return r;
+        const line = [r.text, r.narration, r.dialogue, r.voiceover, r.speech].find((v) => typeof v === "string" && v.trim());
+        return line ? { ...r, line } : r;
+      }),
+    };
+  }
+  return o;
+}
+
 export function normalizeEpisode(input: R, ctx: EpisodeContext, warnings: string[] = []): EpisodePlan {
-  const o = rec(input);
+  const o = unwrapEpisode(input);
   const prevCast = (ctx.previousCast ?? []).filter((c) => c && typeof c.id === "string");
   const prevPlaces = (ctx.previousPlaces ?? []).filter((p) => p && typeof p.id === "string");
   const episode = Math.max(1, Math.round(ctx.partIndex) + 1);

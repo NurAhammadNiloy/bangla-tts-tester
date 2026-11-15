@@ -267,7 +267,7 @@ export async function chatComplete(
     plugins?: { id: string }[];
   },
   opts: ClientOptions = {},
-): Promise<{ content: string; generationId: string | null }> {
+): Promise<{ content: string; generationId: string | null; finishReason?: string | null }> {
   const f = opts.fetchImpl ?? fetch;
   const body: Record<string, unknown> = {
     model: p.model,
@@ -287,10 +287,11 @@ export async function chatComplete(
     signal: AbortSignal.timeout(opts.timeoutMs ?? 90_000),
   });
   if (!res.ok) throw await errorFromResponse(res, p.apiKey);
-  const json = (await res.json()) as { id?: string; choices?: { message?: { content?: unknown } }[] };
+  const json = (await res.json()) as { id?: string; choices?: { message?: { content?: unknown }; finish_reason?: unknown }[] };
   const content = json.choices?.[0]?.message?.content;
   if (typeof content !== "string" || !content.trim()) {
     throw new OpenRouterError(502, "The helper model returned no text.");
   }
-  return { content, generationId: json.id ?? null };
+  const fr = json.choices?.[0]?.finish_reason;
+  return { content, generationId: json.id ?? null, finishReason: typeof fr === "string" ? fr : null };
 }
