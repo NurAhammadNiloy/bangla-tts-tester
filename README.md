@@ -68,7 +68,7 @@ npm run dev
 
 Open http://localhost:3000, paste your OpenRouter key, keep the default Bengali sentence, and click **Generate Voice**.
 
-No `.env` file is needed. The key is typed into the page only.
+No `.env` file is needed. The key is typed into the page. Golpo Studio keeps it in this browser's local storage so you do not retype it (any script running on the page could read it, so only use it on a device you trust; use **Settings → Forget key** to remove it). The server never stores the key; it only passes it to OpenRouter for each request.
 
 ## 5. Testing procedure
 

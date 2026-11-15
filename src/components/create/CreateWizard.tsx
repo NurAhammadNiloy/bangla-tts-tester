@@ -22,7 +22,7 @@ import { SAMPLE_STORY, SAMPLE_STORY_GENRE } from "@/lib/sampleStory";
 import DirectorReview from "@/components/create/DirectorReview";
 import { mergeSection, type BibleSection, type GateReport, type StoryBible } from "@/lib/storyBible";
 import { estimateEpisode, layoutEpisode } from "@/lib/pipeline/layout";
-import { castVoices, voiceForShot } from "@/lib/pipeline/voices";
+import { castVoices, voiceCacheKey, voiceForShot } from "@/lib/pipeline/voices";
 import {
   buildAssets,
   buildSegments,
@@ -397,7 +397,7 @@ export default function CreateWizard() {
           shotVoices.push({ blob: null, buffer: null, timing: { seconds: 0, offset: 0 }, env: null });
           continue;
         }
-        const k = `${pid}/${partIndex}/voice/${i}/${hash(text + voiceForShot(shot.speaker, voices))}`;
+        const k = voiceCacheKey(pid, partIndex, i, { text, voice: voiceForShot(shot.speaker, voices) ?? "", model: ttsModel ?? "", instructions: preset.instructions });
         let blob = await getAsset(k);
         if (!blob) {
           blob = await speakLine(key, { model: ttsModel, text, voice: voiceForShot(shot.speaker, voices), instructions: preset.instructions }, ctl.signal);
@@ -834,10 +834,4 @@ export default function CreateWizard() {
       />
     </div>
   );
-}
-
-function hash(s: string): string {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return (h >>> 0).toString(36);
 }

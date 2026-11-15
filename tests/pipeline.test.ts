@@ -87,3 +87,17 @@ describe("castVoices", () => {
     expect(voiceForShot("missing", v)).toBe("Sulafat");
   });
 });
+
+describe("voiceCacheKey", () => {
+  const base = { text: "কে?", voice: "Charon", model: "m1", instructions: "slow" };
+  it("changes when the model, voice, directions or text change", async () => {
+    const { voiceCacheKey } = await import("@/lib/pipeline/voices");
+    const k = voiceCacheKey("p", 0, 1, base);
+    expect(voiceCacheKey("p", 0, 1, base)).toBe(k);
+    expect(voiceCacheKey("p", 0, 1, { ...base, model: "m2" })).not.toBe(k);
+    expect(voiceCacheKey("p", 0, 1, { ...base, voice: "Kore" })).not.toBe(k);
+    expect(voiceCacheKey("p", 0, 1, { ...base, instructions: "fast" })).not.toBe(k);
+    expect(voiceCacheKey("p", 0, 1, { ...base, text: "কে ওখানে?" })).not.toBe(k);
+    expect(k.startsWith("p/0/voice/1/")).toBe(true);
+  });
+});

@@ -9,6 +9,7 @@ import Info from "@/components/Info";
 import {
   estimateCost,
   inStory,
+  overSpendLimit,
   type BibleCharacter,
   type BibleSection,
   type GateReport,
@@ -27,6 +28,8 @@ const CARDS: Card[] = [
 
 const box = "rounded-xl border border-line bg-surface-2 px-3 py-2 text-sm w-full";
 const small = "rounded-lg border border-line px-3 py-1.5 text-xs font-semibold hover:border-accent disabled:opacity-50";
+
+const LIMIT_KEY = "golpo.spendLimit.v1";
 
 export default function DirectorReview(props: {
   bible: StoryBible;
@@ -51,6 +54,26 @@ export default function DirectorReview(props: {
     () => estimateCost({ newCharacters: bible.characters.length, newPlaces: bible.places.length, voiceMinutes: props.voiceMinutes }),
     [bible.characters.length, bible.places.length, props.voiceMinutes],
   );
+
+  const [limit, setLimit] = useState(() => {
+    try {
+      const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(LIMIT_KEY);
+      const v = raw === null ? NaN : Number(raw);
+      return Number.isFinite(v) && v >= 0 ? v : 1;
+    } catch {
+      return 1; // storage blocked: default limit
+    }
+  });
+  const changeLimit = (v: number) => {
+    const n = Number.isFinite(v) ? Math.max(0, Math.round(v * 100) / 100) : 0;
+    setLimit(n);
+    try {
+      localStorage.setItem(LIMIT_KEY, String(n));
+    } catch {
+      /* ignore */
+    }
+  };
+  const tooExpensive = overSpendLimit(cost.total, limit);
 
   const touch = (id: BibleSection, next: StoryBible) => {
     setApproved((s) => {
@@ -171,6 +194,24 @@ export default function DirectorReview(props: {
           </li>
         </ul>
         <label className="mt-3 flex items-center gap-3 font-semibold">
+          Spending limit $
+          <input
+            type="number"
+            min={0}
+            step={0.25}
+            value={limit}
+            onChange={(e) => changeLimit(Number(e.target.value))}
+            className="w-24 rounded-lg border border-line bg-surface-2 px-2 py-1"
+            aria-label="Spending limit in US dollars"
+          />
+          <Info title="Spending limit">The most you want to spend on this part. If the estimate is higher, the Approve button stays locked until you raise the limit. 0 means no limit.</Info>
+        </label>
+        {tooExpensive && (
+          <p role="alert" className="mt-2 text-sm font-semibold text-bad">
+            The estimate (${cost.total.toFixed(2)}) is above your limit (${limit.toFixed(2)}). Raise the limit to continue.
+          </p>
+        )}
+        <label className="mt-3 flex items-center gap-3 font-semibold">
           <input type="checkbox" className="h-5 w-5 accent-[var(--accent)]" checked={props.fast} onChange={(e) => props.onFast(e.target.checked)} />
           Fast shot planner (cheaper)
           <Info title="Fast shot planner">Plans the shots with a cheaper, faster model. If its answer is broken, the strong model is used instead. The bible is always made by the strong model.</Info>
@@ -179,7 +220,7 @@ export default function DirectorReview(props: {
 
       <button
         className="mt-5 w-full rounded-xl bg-accent px-5 py-3.5 text-base font-bold text-accent-ink shadow-sm transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
-        disabled={props.busy || !allApproved}
+        disabled={props.busy || !allApproved || tooExpensive}
         onClick={props.onApprove}
       >
         {allApproved ? "অনুমোদন করে পরের ধাপ · Approve & plan the shots" : `Approve all ${CARDS.length} cards to continue (${approved.size}/${CARDS.length})`}

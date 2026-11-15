@@ -14,6 +14,7 @@ import {
   matchCharacter,
   mergeSection,
   normalizeBible,
+  overSpendLimit,
   runAccuracyGate,
   type StoryBible,
 } from "@/lib/storyBible";
@@ -130,9 +131,9 @@ describe("bible → shots", () => {
         { id: "rahima", name: "রহিমা", asset: "a", look: "l", voice: "female_old" },
         { id: "kabir", name: "কবির", asset: "a", look: "l", voice: "male" },
       ],
-      places: [{ id: "room", asset: "room", look: "l", time: "day" }],
+      places: [{ id: "yard", asset: "yard", look: "l", time: "day" }],
       shots: [
-        { line: "এক", speaker: "kabir", place: "room", camera: { shot: "wide", move: "hold", focus: "kabir" }, actors: [{ id: "kabir", x: 0.5, action: "stand", face: "neutral" }, { id: "rahima", x: 0.2, action: "stand", face: "neutral" }] },
+        { line: "এক", speaker: "kabir", place: "yard", camera: { shot: "wide", move: "hold", focus: "kabir" }, actors: [{ id: "kabir", x: 0.5, action: "stand", face: "neutral" }, { id: "rahima", x: 0.2, action: "stand", face: "neutral" }] },
       ],
       end: { type: "the_end", text: "শেষ" },
     } as unknown as EpisodePlan;
@@ -225,5 +226,37 @@ describe("routes", () => {
     expect(chatCall?.body?.model).toBe("google/gemini-3-flash"); // fast model used
     expect(j.plan.cast.map((c: { id: string }) => c.id)).toEqual(["rahima"]);
     expect(j.warnings.join(" ")).toMatch(/kabir/);
+  });
+});
+
+describe("empty places and spending limit", () => {
+  const bible = normalizeBible({
+    message: "m",
+    characters: [{ id: "rahima", name: "রহিমা", mentions: ["রহিমা"], relation: "mother", look: "old", facts: [] }],
+    places: [{ id: "empty_room", name: "খালি ঘর", description: "room with a fan", who: "nobody" }],
+    events: [], key_moments: [], ending: "", pacing: "", prohibited: [],
+  });
+  const plan = {
+    version: 2, series: "s", episode: 1, title: "t", caption: "c", mood: "emotional", format: "9:16",
+    cast: [{ id: "rahima", name: "রহিমা", asset: "old_woman", look: "", voice: "female_old" }],
+    places: [{ id: "empty_room", asset: "home_room", look: "", time: "night" }, { id: "yard", asset: "yard", look: "", time: "day" }],
+    shots: [
+      { line: "ঘরটা ফাঁকা।", speaker: "narrator", place: "empty_room", camera: { shot: "wide", move: "hold" }, actors: [{ id: "rahima", x: 0.5, action: "idle", face: "sad" }] },
+      { line: "উঠোনে রহিমা।", speaker: "narrator", place: "yard", camera: { shot: "wide", move: "hold" }, actors: [{ id: "rahima", x: 0.5, action: "idle", face: "sad" }] },
+    ],
+    end: { type: "the_end", text: "শেষ" },
+  } as unknown as EpisodePlan;
+
+  it("removes people from a place the bible says is empty, and only there", () => {
+    const warnings: string[] = [];
+    const out = enforceBible(plan, bible, warnings);
+    expect(out.shots[0].actors).toEqual([]);
+    expect(out.shots[1].actors).toHaveLength(1);
+    expect(warnings.join(" ")).toMatch(/empty place/);
+  });
+  it("blocks only when the estimate is above a limit above zero", () => {
+    expect(overSpendLimit(1.2, 1)).toBe(true);
+    expect(overSpendLimit(0.8, 1)).toBe(false);
+    expect(overSpendLimit(5, 0)).toBe(false);
   });
 });

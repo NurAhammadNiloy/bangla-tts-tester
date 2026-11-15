@@ -161,10 +161,10 @@ export function drawEpisodeFrame(
       const cap = seg.captions.find((c) => t >= c.start && t < c.end);
       const hl = opts.highlightWords !== false;
       if (cap) {
-        const style = input.captionStyle ?? "box";
+        const style = input.captionStyle ?? "clean";
         if (seg.bubble && style === "bubbles") drawBubble(ctx, cap, t, W, H, hl, seg.anchor?.(W, H, t) ?? null);
         else if (seg.bubble) drawBubble(ctx, cap, t, W, H, hl, seg.anchor?.(W, H, t) ?? null);
-        else drawCaption(ctx, cap, t, W, H, hl, style === "bubbles" ? "box" : style);
+        else drawCaption(ctx, cap, t, W, H, hl, style === "bubbles" ? "clean" : style); // narration: white text, thin outline
       }
     }
   }

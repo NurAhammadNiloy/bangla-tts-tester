@@ -41,3 +41,26 @@ export function voiceForShot(speaker: string, voices: ReturnType<typeof castVoic
   if (speaker === "narrator") return voices.narrator;
   return voices.byCast[speaker] ?? voices.narrator;
 }
+
+
+/** Small stable string hash (cache keys, not security). */
+export function hashText(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
+/**
+ * Storage key for one recorded line. Everything that changes the sound must be
+ * in the key (text, voice, model, voice directions) so a changed setting can
+ * never replay an old recording.
+ */
+export function voiceCacheKey(
+  projectId: string,
+  part: number,
+  shot: number,
+  gen: { text: string; voice: string; model: string; instructions?: string },
+): string {
+  const sig = [gen.model, gen.voice, gen.instructions ?? "", gen.text].join("\u0001");
+  return `${projectId}/${part}/voice/${shot}/${hashText(sig)}`;
+}

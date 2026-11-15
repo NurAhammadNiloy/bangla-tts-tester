@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import Info from "@/components/Info";
+import { exportProject, importBackup } from "@/lib/projects/backup";
 import { deleteProject, listProjects } from "@/lib/projects/db";
 import type { ProjectRecord } from "@/lib/projects/types";
 import { episodesLabel, projectStatus, projectTitle, sortProjects, styleLabel, timeAgo } from "./projectInfo";
@@ -37,6 +38,46 @@ export default function ProjectsList() {
     load();
   }, [load]);
 
+  async function backup(id: string) {
+    setBusyId(id);
+    try {
+      const { blob, fileName } = await exportProject(id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = fileName;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not make the backup.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function restore(file: File | undefined) {
+    if (!file) return;
+    try {
+      await importBackup(await file.text());
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not restore that backup.");
+    }
+  }
+
+  const restoreButton = (
+    <div className="mb-3 flex items-center gap-2">
+      <label className="btn-secondary cursor-pointer">
+        Restore from backup
+        <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => { restore(e.target.files?.[0]); e.target.value = ""; }} />
+      </label>
+      <Info title="Backup and restore">
+        Your stories are saved only in this browser, and a browser can clear them. Press Backup on a story to download one file with everything in it (voices, pictures, videos). Restore puts a backup file back, here or on another device. Your OpenRouter key is never inside the file.
+      </Info>
+    </div>
+  );
+
   async function remove(id: string) {
     setBusyId(id);
     try {
@@ -70,12 +111,14 @@ export default function ProjectsList() {
         <Link href="/create" className="btn-primary mt-1 px-6 py-3 text-base">
           Make your first video
         </Link>
+        <div className="mt-2">{restoreButton}</div>
       </div>
     );
   }
 
   return (
     <>
+      {restoreButton}
       {error && (
         <p role="alert" className="mb-3 rounded-xl border border-bad/40 bg-bad/10 px-3 py-2 text-sm text-bad">
           {error}
@@ -125,6 +168,9 @@ export default function ProjectsList() {
                   <Link href={`/create?project=${encodeURIComponent(p.id)}`} className="btn-primary flex-1">
                     Open
                   </Link>
+                  <button type="button" onClick={() => backup(p.id)} disabled={busyId === p.id} className="btn-secondary" aria-label={`Back up ${projectTitle(p)}`}>
+                    Backup
+                  </button>
                   <button type="button" onClick={() => setConfirmId(p.id)} className="btn-secondary" aria-label={`Delete ${projectTitle(p)}`}>
                     Delete
                   </button>

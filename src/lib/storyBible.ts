@@ -408,6 +408,28 @@ export function matchCharacter(c: Pick<CastMember, "id" | "name">, b: StoryBible
   return null;
 }
 
+const slugOf = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_|_$/g, "");
+const EMPTY_WHO = /^(nobody|no one|none|empty|nil|কেউ নেই|কেউ না|খালি)/i;
+
+/** Plan place ids that the bible says are empty (matched by id / asset / name). */
+export function emptyPlaceIds(plan: EpisodePlan, b: StoryBible): Set<string> {
+  const out = new Set<string>();
+  const empties = b.places.filter((p) => EMPTY_WHO.test(p.who.trim()));
+  for (const pl of plan.places) {
+    const ids = [pl.id, pl.asset].map(slugOf);
+    for (const e of empties) {
+      const keys = [e.id, e.name].map(slugOf).filter((k) => k.length >= 3);
+      if (keys.some((k) => ids.some((i) => i === k || i.includes(k) || k.includes(i)))) out.add(pl.id);
+    }
+  }
+  return out;
+}
+
+/** True when the estimate is above the user's spending limit. A limit of 0 or less means "no limit". */
+export function overSpendLimit(totalUsd: number, limitUsd: number): boolean {
+  return limitUsd > 0 && totalUsd > limitUsd + 1e-9;
+}
+
 /**
  * After planning: remove cast the bible does not know (and every shot appearance of them), and warn
  * when a key number or key line of this part never reaches the plan. Returns a new plan.
@@ -423,7 +445,8 @@ export function enforceBible(plan: EpisodePlan, b: StoryBible, warnings: string[
     if (matchCharacter(c, b)) allowed.set(c.id, c);
     else removed.add(c.id);
   }
-  if (!removed.size && !b.keyNumbers.length && !b.keyLines.length) return plan;
+  const empties = emptyPlaceIds(plan, b);
+  if (!removed.size && !empties.size && !b.keyNumbers.length && !b.keyLines.length) return plan;
   for (const id of removed) warnings.push(`Removed “${id}”: that person is not in the approved Story Bible.`);
 
   const cleanActors = <T extends { id: string }>(a: T[] | undefined) => a?.filter((x) => !removed.has(x.id));
@@ -434,6 +457,12 @@ export function enforceBible(plan: EpisodePlan, b: StoryBible, warnings: string[
     if (sh.top) next.top = { ...sh.top, actors: cleanActors(sh.top.actors) ?? [] };
     if (sh.bottom) next.bottom = { ...sh.bottom, actors: cleanActors(sh.bottom.actors) ?? [] };
     if (sh.camera.focus && removed.has(sh.camera.focus)) next.camera = { ...sh.camera, focus: undefined };
+    // An empty place stays empty: nobody stands in it (a hard rule from the bible).
+    if (sh.place && empties.has(sh.place) && sh.layout !== "split" && next.actors?.length) {
+      warnings.push(`“${sh.place}” is an empty place in the bible: removed the people from that shot.`);
+      next.actors = [];
+      if (next.camera.focus && !(next.props ?? []).some((p) => p.id === next.camera.focus)) next.camera = { ...next.camera, focus: undefined };
+    }
     return next;
   });
   const out: EpisodePlan = { ...plan, cast: plan.cast.filter((c) => !removed.has(c.id)), shots };
