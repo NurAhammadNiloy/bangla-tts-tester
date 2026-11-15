@@ -12,7 +12,7 @@ import {
   wordCount,
   type EpisodeContext,
 } from "@/lib/episodePlan";
-import type { CastMember, EpisodePlan, PlaceRef } from "@/lib/puppet/types";
+import type { CastMember, PlaceRef } from "@/lib/puppet/types";
 import { strictProblems } from "./strictSchema";
 
 const ctx: EpisodeContext = {
@@ -29,22 +29,22 @@ const ctx: EpisodeContext = {
 };
 
 const clone = <T,>(x: T): T => structuredClone(x);
-function shotsOf(p: EpisodePlan) {
-  return p.shots;
-}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const shotProps = (EPISODE_SCHEMA as any).properties.shots.items.properties;
 
 describe("EPISODE_SCHEMA", () => {
   it("is strict everywhere (additionalProperties false, required = all keys)", () => {
     expect(strictProblems(EPISODE_SCHEMA)).toEqual([]);
   });
   it("screen has a type enum with none and every ScreenSpec type", () => {
-    const screen = EPISODE_SCHEMA.properties.shots.items.properties.screen;
+    const screen = shotProps.screen;
     expect(screen.properties.type.enum).toEqual(
       expect.arrayContaining(["none", "notification", "incoming_call", "video_call", "chat", "letter", "tv_news", "calendar", "map", "photo", "text_card"]),
     );
   });
   it("sfx enum is exactly the allowed list", () => {
-    expect(EPISODE_SCHEMA.properties.shots.items.properties.sfx.items.enum).toEqual([...SFX]);
+    expect(shotProps.sfx.items.enum).toEqual([...SFX]);
   });
 });
 
